@@ -60,7 +60,7 @@ a { color: var(--focus); }
 
 /* ---------- En-tête ---------- */
 .top { position: sticky; top: 0; z-index: 5; background: var(--panel); border-bottom: 1px solid var(--line); }
-.top-inner { max-width: 1280px; margin: 0 auto; padding: 10px 16px; display: flex; flex-wrap: wrap; align-items: center; gap: 10px 16px; }
+.top-inner { max-width: 1600px; margin: 0 auto; padding: 10px 16px; display: flex; flex-wrap: wrap; align-items: center; gap: 10px 16px; }
 .brand { display: flex; align-items: center; gap: 10px; font: 600 17px/1 var(--font-cond); letter-spacing: .01em; white-space: nowrap; }
 .brand-mark { width: 22px; height: 22px; border: 2px solid var(--mark); border-radius: 4px; position: relative; flex: none; }
 .brand-mark::after { content: ""; position: absolute; left: 3px; right: 3px; top: 8px; height: 2px; background: var(--mark); transform: rotate(-12deg); }
@@ -82,7 +82,7 @@ select, input[type="text"], input[type="password"], input[type="search"] {
 .btn-sm { min-height: 28px; padding: 3px 9px; font-size: 13px; }
 
 /* ---------- Corps ---------- */
-main { max-width: 1280px; margin: 0 auto; padding: 16px 16px 120px; display: flex; flex-direction: column; gap: 14px; }
+main { max-width: 1600px; margin: 0 auto; padding: 16px 16px 120px; display: flex; flex-direction: column; gap: 14px; }
 .notice { background: var(--panel); border: 1px solid var(--line); border-left: 3px solid var(--st-new); border-radius: var(--radius); padding: 12px 14px; display: flex; flex-wrap: wrap; gap: 10px 16px; align-items: center; justify-content: space-between; }
 .notice.error { border-left-color: var(--st-missing); }
 .notice.ok { border-left-color: var(--st-ok); }
@@ -99,9 +99,14 @@ main { max-width: 1280px; margin: 0 auto; padding: 16px 16px 120px; display: fle
 
 /* ---------- Lignes ---------- */
 .rows { display: flex; flex-direction: column; background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); }
-.row { display: grid; grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.2fr) minmax(0, 1.4fr); gap: 14px; padding: 12px 14px; border-top: 1px solid var(--line); }
+.row { display: grid; grid-template-columns: minmax(0, 0.8fr) repeat(var(--cols, 2), minmax(0, 1fr)); gap: 14px; padding: 12px 14px; border-top: 1px solid var(--line); }
+.row.colhead { padding-block: 8px; font-size: 11.5px; font-weight: 500; color: var(--muted); text-transform: uppercase; letter-spacing: .06em; background: var(--bg); border-radius: var(--radius) var(--radius) 0 0; }
+.cell-head { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.form-status { align-self: flex-start; font-size: 11px; }
+.lang-picker { display: flex; flex-wrap: wrap; gap: 6px; }
+.lang-chip[disabled] { opacity: .45; cursor: not-allowed; }
+.field-label { font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: .06em; }
 .row:first-child { border-top: 0; }
-.row.single { grid-template-columns: minmax(0, 0.9fr) minmax(0, 2.6fr); }
 .row.is-draft { background: var(--draft-bg); }
 .cell { min-width: 0; display: flex; flex-direction: column; gap: 6px; }
 .key { font: 12.5px/1.45 var(--font-mono); word-break: break-all; }
@@ -119,22 +124,17 @@ main { max-width: 1280px; margin: 0 auto; padding: 16px 16px 120px; display: fle
 .lang-tag { font: 500 11px/1 var(--font-mono); color: var(--muted); text-transform: uppercase; letter-spacing: .05em; }
 .src { white-space: pre-wrap; word-break: break-word; }
 .ref { white-space: pre-wrap; word-break: break-word; color: var(--muted); font-size: 13px; border-top: 1px dashed var(--line); padding-top: 6px; }
-textarea { width: 100%; min-height: 40px; resize: vertical; border: 1px solid var(--line-strong); border-radius: var(--radius); padding: 7px 9px; background: var(--panel); line-height: 1.45; }
-.row.is-draft textarea { border-color: var(--mark); }
+textarea { width: 100%; min-height: 40px; resize: vertical; overflow-y: hidden; box-sizing: border-box; border: 1px solid var(--line-strong); border-radius: var(--radius); padding: 7px 9px; background: var(--panel); line-height: 1.45; }
 .actions { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
 .hint { color: var(--muted); font-size: 12px; }
 .pill.neutral { color: var(--muted); border: 1px solid var(--line-strong); background: transparent; }
 
 /* ---------- Pluriels ---------- */
-.row.group .forms { grid-column: 2 / span 2; display: flex; flex-direction: column; gap: 10px; min-width: 0; }
-.form-line { display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(0, 1.4fr); gap: 14px; align-items: start; padding-top: 10px; border-top: 1px dashed var(--line); }
+.row.group .forms { grid-column: 2 / -1; display: grid; grid-template-columns: subgrid; row-gap: 10px; min-width: 0; }
+.form-line { grid-column: 1 / -1; display: grid; grid-template-columns: subgrid; align-items: start; padding-top: 10px; border-top: 1px dashed var(--line); }
+.form-line > .cell.is-draft textarea, .lang-cell.is-draft textarea { border-color: var(--mark); }
 .form-line:first-child { padding-top: 0; border-top: 0; }
-.row.single .form-line { grid-template-columns: minmax(0, 1fr); }
-.row.single.group .forms { grid-column: 2; }
-.form-line.is-draft textarea { border-color: var(--mark); }
-.row.group.is-draft textarea { border-color: var(--line-strong); }
-.row.group .form-line.is-draft textarea { border-color: var(--mark); }
-.form-name { display: inline-flex; gap: 6px; align-items: center; font: 500 11px/1.4 var(--font-mono); color: var(--muted); text-transform: uppercase; letter-spacing: .05em; }
+.row.group .form-name { display: inline-flex; gap: 6px; align-items: center; font: 500 11px/1.4 var(--font-mono); color: var(--muted); text-transform: uppercase; letter-spacing: .05em; }
 .form-name .pill { text-transform: none; letter-spacing: 0; font-family: var(--font-sans); }
 .src.empty-src { color: var(--muted); font-style: italic; }
 .forms-inline, .src-forms { display: flex; flex-direction: column; gap: 6px; }
@@ -145,7 +145,7 @@ textarea { width: 100%; min-height: 40px; resize: vertical; border: 1px solid va
 
 /* ---------- Barre d'envoi ---------- */
 .sendbar { position: fixed; left: 0; right: 0; bottom: 0; z-index: 6; background: var(--panel); border-top: 1px solid var(--line); padding: 10px 16px calc(10px + env(safe-area-inset-bottom, 0px)); }
-.sendbar-inner { max-width: 1280px; margin: 0 auto; display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: center; justify-content: space-between; }
+.sendbar-inner { max-width: 1600px; margin: 0 auto; display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: center; justify-content: space-between; }
 .sendbar strong { font-variant-numeric: tabular-nums; }
 
 /* ---------- Panneaux ---------- */
@@ -155,6 +155,7 @@ textarea { width: 100%; min-height: 40px; resize: vertical; border: 1px solid va
 .sheet h3 { margin: 0; font-size: 14px; }
 .sheet .group { display: flex; flex-direction: column; gap: 6px; }
 .sheet input[type="text"], .sheet textarea { width: 100%; }
+.sheet textarea { overflow-y: auto; }
 .changes { max-height: 300px; overflow: auto; border: 1px solid var(--line); border-radius: var(--radius); }
 .changes table { width: 100%; border-collapse: collapse; font-size: 13px; }
 .changes td, .changes th { padding: 6px 8px; border-top: 1px solid var(--line); vertical-align: top; text-align: left; word-break: break-word; }
@@ -175,10 +176,11 @@ textarea { width: 100%; min-height: 40px; resize: vertical; border: 1px solid va
 .check { display: flex; gap: 8px; align-items: center; color: var(--muted); font-size: 13px; }
 
 @media (max-width: 860px) {
-  .row, .row.single { grid-template-columns: minmax(0, 1fr); gap: 8px; }
+  .row { grid-template-columns: minmax(0, 1fr); gap: 8px; }
   .toolbar input[type="search"] { width: 100%; }
-  .row.group .forms, .row.single.group .forms { grid-column: 1; }
-  .form-line { grid-template-columns: minmax(0, 1fr); gap: 6px; }
+  .row.group .forms { grid-column: 1; display: flex; flex-direction: column; }
+  .form-line { display: flex; flex-direction: column; gap: 8px; }
+  .row.colhead { display: none; }
   .pickers { flex-basis: 100%; }
   .field { flex: 1 1 100%; min-width: 0; }
   .field label { flex: 0 0 7.5em; }
@@ -216,8 +218,7 @@ textarea { width: 100%; min-height: 40px; resize: vertical; border: 1px solid va
       <div class="brand"><span class="brand-mark" aria-hidden="true"></span>Relecture des traductions</div>
       <div class="pickers">
         <div class="field"><label for="set-select">Fichiers</label><select id="set-select"></select></div>
-        <div class="field"><label for="lang-select">Langue</label><select id="lang-select"></select></div>
-        <div class="field"><label for="ref-select">Afficher aussi</label><select id="ref-select"></select></div>
+        <div class="field"><span class="field-label" id="lang-picker-label">Langues (3 max)</span><div class="lang-picker" id="lang-picker" role="group" aria-labelledby="lang-picker-label"></div></div>
       </div>
       <div class="who"><span id="who"></span><button class="linkbtn" id="logout" type="button">Se déconnecter</button></div>
     </div>
@@ -701,7 +702,7 @@ function sset(k, v, kind) { try { const s = store(kind); if (s) v === null ? s.r
 const state = {
   token: null, user: null,
   setId: sget("i18n-set", "local") || SETS[0].id,
-  lang: null, ref: "", filter: "todo", search: "", shown: PAGE,
+  langPrefs: loadLangPrefs(), filter: "todo", search: "", shown: PAGE,
   data: {},      // setId -> { sha, branch, flat:{lang:[]}, obj:{lang:{}}, review, pending:{lang:Map} }
   repoInfo: {},  // repo -> { branch }
   drafts: loadDrafts(), // "set|lang|id" -> { set, lang, id, segs, value, original, source, edited }
@@ -793,30 +794,58 @@ async function loadPending(set, baseReview) {
 }
 
 /* ================= Lignes ================= */
-function currentRows() {
-  const set = setById(state.setId), d = state.data[state.setId];
-  if (!d) return [];
-  const isSource = state.lang === set.source;
-  const rows = C.computeRows({
-    sourceFlat: d.flat[set.source], targetFlat: d.flat[state.lang], isSource,
-    entries: C.reviewEntries(d.review, set.id, state.lang), pendingEntries: d.pending[state.lang],
-  });
-  const refMap = state.ref ? C.toMap(d.flat[state.ref]) : null;
-  for (const r of rows) {
-    r.ref = refMap && refMap.get(r.id) ? refMap.get(r.id).value : null;
-    r.draft = state.drafts[draftKey(set.id, state.lang, r.id)] || null;
+// Langues éditées côte à côte (3 au plus), mémorisées par jeu de fichiers sur cet ordinateur.
+const MAX_LANGS = 3;
+function loadLangPrefs() { try { return JSON.parse(sget("i18n-langs", "local") || "{}"); } catch (e) { return {}; } }
+function activeLangs() {
+  const set = setById(state.setId);
+  let langs = (state.langPrefs[set.id] || []).filter(l => set.langs.includes(l)).slice(0, MAX_LANGS);
+  if (!langs.length) {
+    const others = set.langs.filter(l => l !== set.source);
+    langs = (others.length ? others : [set.source]).slice(0, MAX_LANGS);
   }
+  return langs;
+}
+function setActiveLangs(langs) {
+  state.langPrefs[state.setId] = langs;
+  sset("i18n-langs", JSON.stringify(state.langPrefs), "local");
+}
+
+function rowsFor(lang) {
+  const set = setById(state.setId), d = state.data[state.setId];
+  const rows = C.computeRows({
+    sourceFlat: d.flat[set.source], targetFlat: d.flat[lang], isSource: lang === set.source,
+    entries: C.reviewEntries(d.review, set.id, lang), pendingEntries: d.pending[lang],
+  });
+  for (const r of rows) { r.lang = lang; r.draft = state.drafts[draftKey(set.id, lang, r.id)] || null; }
   return C.annotatePlurals(rows);
 }
-function matchesFilter(r) {
-  if (state.filter === "all") return true;
-  if (state.filter === "todo") return ["missing", "new", "source", "modified"].includes(r.status) || !!r.draft;
-  return r.status === state.filter;
+
+// Une clé = la source + une cellule par langue éditée (toutes les listes suivent l'ordre de la source).
+function currentKeys() {
+  const d = state.data[state.setId];
+  if (!d) return [];
+  const langs = activeLangs();
+  const lists = langs.map(rowsFor);
+  return lists[0].map((r0, i) => ({
+    id: r0.id, segs: r0.segs, source: r0.source, group: r0.group, form: r0.form,
+    cells: lists.map(list => list[i]),
+  }));
 }
-function matchesSearch(r) {
+
+const TODO = ["missing", "new", "source", "modified"];
+function keyMatchesStatus(k, f) {
+  if (f === "all") return true;
+  if (f === "todo") return k.cells.some(c => TODO.includes(c.status) || c.draft);
+  if (f === "ok") return k.cells.every(c => c.status === "ok");
+  return k.cells.some(c => c.status === f);
+}
+const matchesFilter = k => keyMatchesStatus(k, state.filter);
+function matchesSearch(k) {
   if (!state.search) return true;
   const q = state.search.toLowerCase();
-  return r.id.toLowerCase().includes(q) || r.source.toLowerCase().includes(q) || (r.value || "").toLowerCase().includes(q) || (r.draft && r.draft.value.toLowerCase().includes(q));
+  return k.id.toLowerCase().includes(q) || k.source.toLowerCase().includes(q) ||
+    k.cells.some(c => (c.value || "").toLowerCase().includes(q) || (c.draft && c.draft.value.toLowerCase().includes(q)));
 }
 
 /* ================= Rendu ================= */
@@ -832,15 +861,25 @@ function el(tag, attrs, ...kids) {
   return n;
 }
 
+
 function renderPickers() {
   const set = setById(state.setId);
   $("set-select").replaceChildren(...SETS.map(s => el("option", { value: s.id, selected: s.id === set.id, text: s.label })));
-  if (!set.langs.includes(state.lang)) state.lang = set.langs.find(l => l !== set.source) || set.source;
-  $("lang-select").replaceChildren(...set.langs.map(l => el("option", { value: l, selected: l === state.lang, text: (LANG_NAMES[l] || l) + (l === set.source ? " (source)" : "") })));
-  const refs = set.langs.filter(l => l !== set.source && l !== state.lang);
-  if (!refs.includes(state.ref)) state.ref = "";
-  $("ref-select").replaceChildren(el("option", { value: "", text: "—" }), ...refs.map(l => el("option", { value: l, selected: l === state.ref, text: LANG_NAMES[l] || l })));
-  $("ref-select").disabled = !refs.length;
+  const langs = activeLangs();
+  $("lang-picker").replaceChildren(...set.langs.map(l => {
+    const on = langs.includes(l);
+    const full = !on && langs.length >= MAX_LANGS;
+    return el("button", {
+      class: "chip lang-chip", type: "button", "aria-pressed": String(on), disabled: full,
+      title: full ? `${MAX_LANGS} langues au plus : retire une langue pour en ajouter une autre.` : on && langs.length === 1 ? "Il faut garder au moins une langue." : null,
+      onclick: () => {
+        if (on && langs.length === 1) return;
+        const next = on ? langs.filter(x => x !== l) : [...langs, l];
+        setActiveLangs(set.langs.filter(x => next.includes(x))); // ordre stable : celui du jeu de fichiers
+        state.shown = PAGE; render();
+      },
+    }, LANG_NAMES[l] || l, l === set.source ? el("span", { class: "n", text: "source" }) : null);
+  }));
 }
 
 // Le rendu remplace les lignes ; retirer un champ actif déclenche son événement « change »,
@@ -851,6 +890,13 @@ function render() {
   rendering = true;
   try { renderInner(); } finally { rendering = false; }
 }
+
+function layout() {
+  const set = setById(state.setId), langs = activeLangs();
+  const showSource = !langs.includes(set.source);
+  return { set, langs, showSource, cols: langs.length + (showSource ? 1 : 0) };
+}
+
 function renderInner() {
   renderPickers();
   const set = setById(state.setId), d = state.data[state.setId];
@@ -860,46 +906,56 @@ function renderInner() {
     $("filters").replaceChildren(); $("count-line").textContent = ""; $("more").hidden = true; $("init-notice").hidden = true;
     renderSendbar(); return;
   }
-  const all = currentRows();
-  renderFilters(all);
+  const keys = currentKeys();
+  renderFilters(keys);
+  $("init-notice").hidden = Object.keys(C.reviewEntries(d.review, set.id, set.source)).length > 0;
 
-  const hasReview = Object.keys(C.reviewEntries(d.review, set.id, set.source)).length > 0;
-  $("init-notice").hidden = hasReview;
-
-  const units = buildUnits(all);
-  const isSource = state.lang === set.source;
-  $("count-line").textContent = `${units.length} clé${units.length > 1 ? "s" : ""} · ${set.repo.split("/")[1]} · ${set.path.replace("{lang}", state.lang)}`;
-  $("validate-visible").disabled = !units.some(u => unitRows(u).some(canValidateRow));
+  const L = layout();
+  const units = buildUnits(keys);
+  const files = L.langs.length === 1 ? set.path.replace("{lang}", L.langs[0]) : set.path.replace("{lang}", "{" + L.langs.join(", ") + "}");
+  $("count-line").textContent = `${units.length} clé${units.length > 1 ? "s" : ""} · ${set.repo.split("/")[1]} · ${files}`;
+  $("validate-visible").disabled = !units.some(u => unitCells(u).some(canValidateRow));
+  rowsEl.style.setProperty("--cols", String(L.cols));
 
   if (!units.length) {
-    const msg = state.filter === "todo" && !state.search ? "Tout est relu pour cette langue. Rien à faire ici." : "Aucune clé ne correspond.";
+    const msg = state.filter === "todo" && !state.search ? "Tout est relu pour ces langues. Rien à faire ici." : "Aucune clé ne correspond.";
     rowsEl.replaceChildren(el("div", { class: "empty", text: msg }));
   } else {
-    rowsEl.replaceChildren(...units.slice(0, state.shown).map(u => renderUnit(u, set, isSource)));
+    rowsEl.replaceChildren(renderHeader(L), ...units.slice(0, state.shown).map(u => renderUnit(u, L)));
   }
   $("more").hidden = units.length <= state.shown;
   $("more-btn").textContent = `Afficher la suite (${units.length - state.shown} restantes)`;
   renderSendbar();
+  autosizeAll();
+}
+
+// En-tête des colonnes, collé sous la barre du haut.
+function renderHeader(L) {
+  return el("div", { class: "row colhead", "aria-hidden": "true" },
+    el("div", { class: "cell", text: "Clé" }),
+    L.showSource ? el("div", { class: "cell", text: (LANG_NAMES[L.set.source] || L.set.source) + " · source" }) : null,
+    ...L.langs.map(l => el("div", { class: "cell", text: (LANG_NAMES[l] || l) + (l === L.set.source ? " · source" : "") })));
 }
 
 // Une unité affichée est soit une clé simple, soit un pluriel (toutes ses formes ensemble).
 // Un pluriel s'affiche en entier dès qu'une de ses formes correspond au filtre et à la recherche.
-function buildUnits(all) {
+function buildUnits(keys) {
   const groups = new Map();
-  for (const r of all) if (r.group) { if (!groups.has(r.group)) groups.set(r.group, []); groups.get(r.group).push(r); }
+  for (const k of keys) if (k.group) { if (!groups.has(k.group)) groups.set(k.group, []); groups.get(k.group).push(k); }
   const units = [], seen = new Set();
-  for (const r of all) {
-    if (r.group) {
-      if (seen.has(r.group)) continue;
-      seen.add(r.group);
-      const rows = groups.get(r.group);
-      if (rows.some(matchesFilter) && rows.some(matchesSearch)) units.push({ group: r.group, rows });
-    } else if (matchesFilter(r) && matchesSearch(r)) units.push({ row: r });
+  for (const k of keys) {
+    if (k.group) {
+      if (seen.has(k.group)) continue;
+      seen.add(k.group);
+      const list = groups.get(k.group);
+      if (list.some(matchesFilter) && list.some(matchesSearch)) units.push({ group: k.group, keys: list });
+    } else if (matchesFilter(k) && matchesSearch(k)) units.push({ key: k });
   }
   return units;
 }
-const unitRows = u => u.group ? u.rows : [u.row];
-function renderUnit(u, set, isSource) { return u.group ? renderGroup(u.group, u.rows, set, isSource) : renderRow(u.row, set, isSource); }
+const unitKeys = u => u.group ? u.keys : [u.key];
+const unitCells = u => unitKeys(u).flatMap(k => k.cells);
+function renderUnit(u, L) { return u.group ? renderGroup(u.group, u.keys, L) : renderKeyRow(u.key, L); }
 
 // Une forme peut être validée telle quelle si elle a un texte, ou si la source est elle-même vide (ex. « zero »: "").
 function canValidateRow(r) { return !r.draft && r.status !== "ok" && (r.value !== "" || r.source === ""); }
@@ -907,39 +963,39 @@ function canValidateRow(r) { return !r.draft && r.status !== "ok" && (r.value !=
 const FORM_LABEL = { zero: "zéro", one: "un", two: "deux", few: "quelques", many: "beaucoup", other: "plusieurs" };
 const STATUS_ORDER = ["missing", "source", "modified", "new", "pending", "ok"];
 
-function renderFilters(all) {
-  const counts = C.countStatuses(all);
-  counts.all = all.length;
-  counts.todo += all.filter(r => r.draft && !["missing", "new", "source", "modified"].includes(r.status)).length;
+function renderFilters(keys) {
+  const counts = {};
+  for (const s of STATUS_INFO) counts[s.key] = keys.reduce((n, k) => n + (keyMatchesStatus(k, s.key) ? 1 : 0), 0);
   $("filters").replaceChildren(...STATUS_INFO.map(s => el("button", {
     class: "chip", type: "button", "aria-pressed": String(state.filter === s.key),
     onclick: () => { state.filter = s.key; state.shown = PAGE; render(); },
   }, s.dot ? el("span", { class: "dot", style: `background: var(${s.dot})`, "aria-hidden": "true" }) : null, s.label, el("span", { class: "n", text: String(counts[s.key] || 0) }))));
 }
 
-// Après une saisie : redessine seulement la ligne concernée, les compteurs et la barre d'envoi.
+// Après une saisie : redessine seulement la clé concernée (toutes ses langues), les compteurs et la barre d'envoi.
 let softUpdating = false;
 function softUpdate(id) {
   if (softUpdating) return; // retirer le champ actif relance « change » : déjà pris en compte
   softUpdating = true;
   try {
-    const set = setById(state.setId);
-    const all = currentRows();
-    renderFilters(all);
+    const keys = currentKeys();
+    renderFilters(keys);
     renderSendbar();
-    const r = all.find(x => x.id === id);
-    if (!r) return;
-    const unitId = r.group || r.id;
+    const k = keys.find(x => x.id === id);
+    if (!k) return;
+    const unitId = k.group || k.id;
     const old = [...document.querySelectorAll("#rows .row")].find(n => n.dataset.id === unitId);
-    const unit = r.group ? { group: r.group, rows: all.filter(x => x.group === r.group) } : { row: r };
+    const unit = k.group ? { group: k.group, keys: keys.filter(x => x.group === k.group) } : { key: k };
     if (!old) return;
     // Laisse le clic qui a déclenché la saisie déplacer le focus, puis remplace la carte et rend le focus
-    // au champ choisi (souvent une autre forme du même pluriel).
+    // au champ choisi (souvent une autre langue ou une autre forme de la même clé).
     setTimeout(() => {
       if (!old.isConnected) return;
       const a = document.activeElement;
       const focus = a && a.tagName === "TEXTAREA" && old.contains(a) ? { id: a.id, s: a.selectionStart, e: a.selectionEnd } : null;
-      old.replaceWith(renderUnit(unit, set, state.lang === set.source));
+      const fresh = renderUnit(unit, layout());
+      old.replaceWith(fresh);
+      for (const t of fresh.querySelectorAll("textarea")) autosize(t);
       const t = focus && document.getElementById(focus.id);
       if (t) { t.focus(); try { t.setSelectionRange(focus.s, focus.e); } catch (e) {} }
     }, 0);
@@ -954,8 +1010,19 @@ function renderKey(r) {
 }
 
 function makeTextarea(id, value, label) {
-  return el("textarea", { id, dir: "auto", rows: String(Math.min(8, Math.max(1, Math.ceil(value.length / 60)))), "aria-label": label });
+  const t = el("textarea", { id, dir: "auto", rows: "1", "aria-label": label });
+  t.addEventListener("input", () => autosize(t));
+  return t;
 }
+// Ajuste la hauteur au texte (jusqu'à ~12 lignes, ensuite la zone défile).
+function autosize(t) {
+  t.style.height = "auto";
+  t.style.height = Math.min(t.scrollHeight + 2, 300) + "px";
+  t.style.overflowY = t.scrollHeight + 2 > 300 ? "auto" : "hidden";
+}
+function autosizeAll(root) { for (const t of (root || document).querySelectorAll("#rows textarea")) autosize(t); }
+let resizeTimer = null;
+window.addEventListener("resize", () => { clearTimeout(resizeTimer); resizeTimer = setTimeout(() => autosizeAll(), 150); });
 function varWarning(vars) {
   return vars.length ? el("div", { class: "warn", text: "Variable absente : " + vars.map(v => "{" + v + "}").join(", ") }) : null;
 }
@@ -1015,22 +1082,25 @@ function compositeOf(r, current) {
   };
 }
 
-function renderRow(r, set, isSource) {
-  const current = r.draft ? r.draft.value : r.value;
-  const rk = draftKey(set.id, state.lang, r.id);
-  const comp = state.rawRows.has(rk) ? null : compositeOf(r, current);
-  const splittable = !!(C.parseJsonPlural(r.source) || C.parseIcu(r.source));
-  const meta = el("div", { class: "meta" },
+
+function cellHeader(r, extra) {
+  return el("div", { class: "cell-head" },
+    el("span", { class: "lang-tag", text: r.lang }),
     el("span", { class: "pill st-" + r.status, text: PILL[r.status] }),
-    splittable ? el("span", { class: "pill neutral", text: comp ? comp.kind : "Pluriel" }) : null,
     r.draft ? el("span", { class: "pill st-draft", text: r.draft.edited ? "Corrigée" : "Validée" }) : null,
     r.pending ? el("a", { href: r.pending.url, target: "_blank", rel: "noopener", class: "hint", text: "PR #" + r.pending.number }) : null,
-  );
-  const keyCell = el("div", { class: "cell" }, renderKey(r), meta, isSource ? null : varWarning(C.missingPlaceholders(r.source, current)));
-  const baseId = "t-" + set.id + "-" + state.lang + "-" + r.id;
-  const langName = LANG_NAMES[state.lang] || state.lang;
+    extra || null);
+}
 
-  // Pluriel dans une seule chaîne : une zone par forme, réassemblées dans le même format.
+// La cellule d'une langue pour une clé simple.
+function renderLangCell(r, set) {
+  const current = r.draft ? r.draft.value : r.value;
+  const rk = draftKey(set.id, r.lang, r.id);
+  const comp = state.rawRows.has(rk) ? null : compositeOf(r, current);
+  const splittable = !!(C.parseJsonPlural(r.source) || C.parseIcu(r.source));
+  const baseId = "t-" + set.id + "-" + r.lang + "-" + r.id;
+  const langName = LANG_NAMES[r.lang] || r.lang;
+
   let editors, readCurrent;
   if (comp) {
     const tas = comp.fields.map((f, n) => { const t = makeTextarea(baseId + "-" + n, f.value, `Traduction ${langName} de ${r.id}, ${f.label}`); t.value = f.value; return t; });
@@ -1039,8 +1109,7 @@ function renderRow(r, set, isSource) {
       if (vals.every((v, n) => v === comp.fields[n].value)) return current;   // rien touché : texte d'origine intact
       return comp.build(vals);
     };
-    editors = el("div", { class: "forms-inline" }, ...tas.map((t, n) => el("label", { class: "form-inline" }, el("span", { class: "form-name", text: comp.fields[n].label }), t)),
-      comp.src.some(f => f.value.includes("#")) ? el("span", { class: "hint", text: "# est remplacé par le nombre ; garde les {variables} telles quelles." }) : null);
+    editors = el("div", { class: "forms-inline" }, ...tas.map((t, n) => el("label", { class: "form-inline" }, el("span", { class: "form-name", text: comp.fields[n].label }), t)));
     for (const t of tas) wireTextarea(t, r, readCurrent);
   } else {
     const ta = makeTextarea(baseId, current, `Traduction ${langName} de ${r.id}`);
@@ -1049,25 +1118,42 @@ function renderRow(r, set, isSource) {
     wireTextarea(ta, r, readCurrent);
     editors = ta;
   }
+  const isSource = r.lang === set.source;
   const toggleRaw = () => { if (state.rawRows.has(rk)) state.rawRows.delete(rk); else state.rawRows.add(rk); render(); };
   const canValidate = canValidateRow(r) && (current !== "" || r.source === "");
   const actions = el("div", { class: "actions" },
     canValidate ? el("button", { class: "btn btn-sm", type: "button", onclick: () => onEdit(r, readCurrent(), true), text: "Valider" }) : null,
     r.draft ? el("button", { class: "btn btn-sm", type: "button", onclick: () => undo(r), text: "Annuler" }) : null,
     splittable && (comp || C.parseIcu(current) || C.parseJsonPlural(current) || current === "")
-      ? el("button", { class: "linkbtn", type: "button", onclick: toggleRaw, text: comp ? "Texte brut" : "Par formes" }) : null,
-    el("span", { class: "hint kbd-hint", text: "⌘/Ctrl + Entrée : valider et passer à la suivante" }),
-  );
-  const editCell = el("div", { class: "cell" }, el("span", { class: "lang-tag", text: state.lang }), editors, actions);
+      ? el("button", { class: "linkbtn", type: "button", onclick: toggleRaw, text: comp ? "Texte brut" : "Par formes" }) : null);
+  return el("div", { class: "cell lang-cell" + (r.draft ? " is-draft" : "") },
+    cellHeader(r), editors,
+    isSource ? null : varWarning(C.missingPlaceholders(r.source, current)),
+    actions);
+}
 
-  if (isSource) return el("div", { class: "row single" + (r.draft ? " is-draft" : ""), "data-id": r.id }, keyCell, editCell);
-  const srcText = comp
-    ? el("div", { class: "src-forms" }, ...comp.src.map(f => el("div", null, el("span", { class: "form-name", text: f.label }),
-        el("span", { class: "src" + (f.value ? "" : " empty-src"), dir: "auto", text: f.value || "(vide)" }))))
-    : el("div", { class: "src", dir: "auto", text: r.source });
-  const srcCell = el("div", { class: "cell" }, el("span", { class: "lang-tag", text: set.source }), srcText,
-    r.ref !== null ? el("div", { class: "ref", dir: "auto" }, el("span", { class: "lang-tag", text: state.ref + " " }), r.ref) : null);
-  return el("div", { class: "row" + (r.draft ? " is-draft" : ""), "data-id": r.id }, keyCell, srcCell, editCell);
+function renderSourceCell(k) {
+  const comp = compositeOf({ source: k.source, value: k.source }, k.source);
+  return el("div", { class: "cell src-cell" },
+    comp
+      ? el("div", { class: "src-forms" }, ...comp.src.map(f => el("div", null, el("span", { class: "form-name", text: f.label }),
+          el("span", { class: "src" + (f.value ? "" : " empty-src"), dir: "auto", text: f.value || "(vide)" }))),
+          comp.src.some(f => f.value.includes("#")) ? el("span", { class: "hint", text: "# est remplacé par le nombre ; garde les {variables} telles quelles." }) : null)
+      : el("div", { class: "src" + (k.source ? "" : " empty-src"), dir: "auto", text: k.source || "(vide)" }));
+}
+
+function keyMeta(cells, tag) {
+  const drafts = cells.filter(c => c.draft).length;
+  return el("div", { class: "meta" },
+    tag ? el("span", { class: "pill neutral", text: tag }) : null,
+    drafts ? el("span", { class: "hint", text: `${drafts} modification${drafts > 1 ? "s" : ""} en attente` }) : null);
+}
+
+function renderKeyRow(k, L) {
+  const splittable = !!(C.parseJsonPlural(k.source) || C.parseIcu(k.source));
+  const keyCell = el("div", { class: "cell" }, renderKey(k), keyMeta(k.cells, splittable ? "Pluriel" : null));
+  return el("div", { class: "row" + (k.cells.some(c => c.draft) ? " is-draft" : ""), "data-id": k.id },
+    keyCell, L.showSource ? renderSourceCell(k) : null, ...k.cells.map(c => renderLangCell(c, L.set)));
 }
 
 function wireTextarea(ta, r, read) {
@@ -1077,46 +1163,55 @@ function wireTextarea(ta, r, read) {
   });
 }
 
-// Un pluriel ({ zero, one, other }) : une seule carte, une ligne par forme.
-function renderGroup(groupId, rows, set, isSource) {
-  const status = STATUS_ORDER.find(s => rows.some(r => r.status === s)) || "ok";
-  const drafts = rows.filter(r => r.draft);
-  const pending = rows.find(r => r.pending);
-  const segs = rows[0].segs.slice(0, -1);
-  const warnings = [];
-  if (!isSource) for (const r of rows) {
-    const v = formVars(r.form, r.source, r.draft ? r.draft.value : r.value);
-    if (v.length) warnings.push(`forme « ${FORM_LABEL[r.form] || r.form} » : ` + v.map(x => "{" + x + "}").join(", "));
-  }
+// Un pluriel ({ zero, one, other }) : une seule carte, une ligne par forme, une colonne par langue.
+function renderGroup(groupId, keys, L) {
+  const segs = keys[0].segs.slice(0, -1);
+  const allCells = keys.flatMap(k => k.cells);
   const keyCell = el("div", { class: "cell" },
     renderKey({ segs, id: groupId }),
-    el("div", { class: "meta" },
-      el("span", { class: "pill st-" + status, text: PILL[status] }),
-      el("span", { class: "pill neutral", text: "Pluriel · " + rows.length + " formes" }),
-      drafts.length ? el("span", { class: "pill st-draft", text: drafts.some(d => d.draft.edited) ? "Corrigé" : "Validé" }) : null,
-      pending ? el("a", { href: pending.pending.url, target: "_blank", rel: "noopener", class: "hint", text: "PR #" + pending.pending.number }) : null),
-    warnings.length ? el("div", { class: "warn", text: "Variable absente, " + warnings.join(" ; ") }) : null);
+    keyMeta(allCells, "Pluriel · " + keys.length + " formes"));
 
-  const langName = LANG_NAMES[state.lang] || state.lang;
-  const lines = rows.map(r => {
-    const current = r.draft ? r.draft.value : r.value;
-    const ta = makeTextarea("t-" + set.id + "-" + state.lang + "-" + r.id, current, `Traduction ${langName} de ${groupId}, forme ${FORM_LABEL[r.form] || r.form}`);
-    ta.value = current;
-    wireTextarea(ta, r, () => ta.value);
-    const name = el("span", { class: "form-name" }, FORM_LABEL[r.form] || r.form, r.status !== status ? el("span", { class: "pill st-" + r.status, text: PILL[r.status] }) : null);
-    const edit = el("div", { class: "cell" }, isSource ? name : el("span", { class: "lang-tag", text: state.lang }), ta);
-    if (isSource) return el("div", { class: "form-line" + (r.draft ? " is-draft" : "") }, edit);
-    const src = el("div", { class: "cell" }, name,
-      el("div", { class: "src" + (r.source === "" ? " empty-src" : ""), dir: "auto", text: r.source === "" ? "(vide)" : r.source }),
-      r.ref !== null ? el("div", { class: "ref", dir: "auto" }, el("span", { class: "lang-tag", text: state.ref + " " }), r.ref) : null);
-    return el("div", { class: "form-line" + (r.draft ? " is-draft" : "") }, src, edit);
+  const lines = keys.map(k => {
+    const name = el("span", { class: "form-name", text: FORM_LABEL[k.form] || k.form });
+    const src = L.showSource
+      ? el("div", { class: "cell" }, name, el("div", { class: "src" + (k.source === "" ? " empty-src" : ""), dir: "auto", text: k.source === "" ? "(vide)" : k.source }))
+      : null;
+    const edits = k.cells.map((r, li) => {
+      const current = r.draft ? r.draft.value : r.value;
+      const langStatus = STATUS_ORDER.find(s => keys.some(x => x.cells[li].status === s)) || "ok";
+      const ta = makeTextarea("t-" + L.set.id + "-" + r.lang + "-" + r.id, current, `Traduction ${LANG_NAMES[r.lang] || r.lang} de ${groupId}, forme ${FORM_LABEL[k.form] || k.form}`);
+      ta.value = current;
+      wireTextarea(ta, r, () => ta.value);
+      const miss = r.lang === L.set.source ? [] : formVars(k.form, r.source, current);
+      return el("div", { class: "cell" + (r.draft ? " is-draft" : "") },
+        L.showSource ? null : el("span", { class: "form-name", style: li > 0 ? "visibility: hidden" : null, "aria-hidden": li > 0 ? "true" : null, text: FORM_LABEL[k.form] || k.form }),
+        r.status === langStatus ? null : el("span", { class: "form-status pill st-" + r.status, text: PILL[r.status] }),
+        ta, varWarning(miss));
+    });
+    return el("div", { class: "form-line" }, src, ...edits);
   });
-  const actions = el("div", { class: "actions" },
-    rows.some(canValidateRow) ? el("button", { class: "btn btn-sm", type: "button", onclick: () => validateRows(rows), text: "Valider le pluriel" }) : null,
-    drafts.length ? el("button", { class: "btn btn-sm", type: "button", onclick: () => { for (const r of drafts) delete state.drafts[draftKey(state.setId, state.lang, r.id)]; saveDrafts(); render(); }, text: "Annuler" }) : null,
-    el("span", { class: "hint kbd-hint", text: "⌘/Ctrl + Entrée : valider une forme et passer à la suivante" }));
-  return el("div", { class: "row group" + (isSource ? " single" : "") + (drafts.length ? " is-draft" : ""), "data-id": groupId },
-    keyCell, el("div", { class: "forms" }, ...lines, actions));
+
+  // Dernière ligne : l'état et les actions de chaque langue.
+  const foot = el("div", { class: "form-line form-foot" },
+    L.showSource ? el("div", { class: "cell" }) : null,
+    ...L.langs.map((lang, li) => {
+      const cells = keys.map(k => k.cells[li]);
+      const status = STATUS_ORDER.find(s => cells.some(c => c.status === s)) || "ok";
+      const drafts = cells.filter(c => c.draft);
+      const pending = cells.find(c => c.pending);
+      return el("div", { class: "cell" },
+        el("div", { class: "cell-head" },
+          el("span", { class: "lang-tag", text: lang }),
+          el("span", { class: "pill st-" + status, text: PILL[status] }),
+          drafts.length ? el("span", { class: "pill st-draft", text: drafts.some(d => d.draft.edited) ? "Corrigé" : "Validé" }) : null,
+          pending ? el("a", { href: pending.pending.url, target: "_blank", rel: "noopener", class: "hint", text: "PR #" + pending.pending.number }) : null),
+        el("div", { class: "actions" },
+          cells.some(canValidateRow) ? el("button", { class: "btn btn-sm", type: "button", onclick: () => validateRows(cells), text: "Valider le pluriel" }) : null,
+          drafts.length ? el("button", { class: "btn btn-sm", type: "button", onclick: () => { for (const r of drafts) delete state.drafts[draftKey(state.setId, r.lang, r.id)]; saveDrafts(); render(); }, text: "Annuler" }) : null));
+    }));
+
+  return el("div", { class: "row group" + (allCells.some(c => c.draft) ? " is-draft" : ""), "data-id": groupId },
+    keyCell, el("div", { class: "forms" }, ...lines, foot));
 }
 
 function focusNext(ta) {
@@ -1128,10 +1223,10 @@ function focusNext(ta) {
 
 /* ================= Modifications ================= */
 function onEdit(r, value, explicit, soft) {
-  const set = setById(state.setId), k = draftKey(set.id, state.lang, r.id);
+  const set = setById(state.setId), k = draftKey(set.id, r.lang, r.id);
   const existing = state.drafts[k];
   // « edited » = à écrire dans le fichier : texte changé, ou clé encore absente de la langue cible.
-  const make = edited => ({ set: set.id, lang: state.lang, id: r.id, segs: r.segs, value, original: r.value, exists: r.exists, source: r.source, edited: edited || !r.exists });
+  const make = edited => ({ set: set.id, lang: r.lang, id: r.id, segs: r.segs, value, original: r.value, exists: r.exists, source: r.source, edited: edited || !r.exists });
   if (value === "" && r.source !== "") {
     delete state.drafts[k];                       // une traduction vide ne peut pas être validée
   } else if (value !== r.value) {
@@ -1147,19 +1242,19 @@ function onEdit(r, value, explicit, soft) {
   if (soft && !rendering) softUpdate(r.id); else render();
 }
 function undo(r) {
-  delete state.drafts[draftKey(state.setId, state.lang, r.id)];
+  delete state.drafts[draftKey(state.setId, r.lang, r.id)];
   saveDrafts(); render();
 }
 function validateRows(rows) {
   const set = setById(state.setId);
   for (const r of rows) {
     if (!canValidateRow(r)) continue;
-    state.drafts[draftKey(set.id, state.lang, r.id)] = { set: set.id, lang: state.lang, id: r.id, segs: r.segs, value: r.value, original: r.value, exists: r.exists, source: r.source, edited: !r.exists };
+    state.drafts[draftKey(set.id, r.lang, r.id)] = { set: set.id, lang: r.lang, id: r.id, segs: r.segs, value: r.value, original: r.value, exists: r.exists, source: r.source, edited: !r.exists };
   }
   saveDrafts(); render();
 }
 function validateVisible() {
-  validateRows(buildUnits(currentRows()).flatMap(unitRows));
+  validateRows(buildUnits(currentKeys()).flatMap(unitCells));
 }
 
 function draftList() { return Object.values(state.drafts); }
@@ -1356,9 +1451,7 @@ $("login-form").addEventListener("submit", e => {
   login(t, $("remember").checked);
 });
 $("logout").addEventListener("click", () => logout());
-$("set-select").addEventListener("change", e => { state.setId = e.target.value; sset("i18n-set", state.setId, "local"); state.lang = null; state.shown = PAGE; state.search = ""; $("search").value = ""; refresh(); });
-$("lang-select").addEventListener("change", e => { state.lang = e.target.value; state.shown = PAGE; render(); });
-$("ref-select").addEventListener("change", e => { state.ref = e.target.value; render(); });
+$("set-select").addEventListener("change", e => { state.setId = e.target.value; sset("i18n-set", state.setId, "local"); state.shown = PAGE; state.search = ""; $("search").value = ""; refresh(); });
 let searchTimer = null;
 $("search").addEventListener("input", e => { clearTimeout(searchTimer); searchTimer = setTimeout(() => { state.search = e.target.value.trim(); state.shown = PAGE; render(); }, 150); });
 $("more-btn").addEventListener("click", () => { state.shown += PAGE; render(); });
