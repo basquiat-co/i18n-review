@@ -1346,8 +1346,17 @@ function showOrphanNotice() {
 
 /* ================= Création de la pull request ================= */
 let prPlan = null; // { mode: "drafts" | "init", setId? }
+// Création en cours : le panneau ne peut être ni fermé ni rouvert, sinon un second clic créerait une PR en double.
+let submitting = false;
+function setSubmitting(on) {
+  submitting = on;
+  $("pr-submit").disabled = on;
+  $("pr-cancel").disabled = on;
+}
+function closePrSheet() { if (!submitting) $("pr-overlay").hidden = true; }
 
 function openPrSheet(mode, setId) {
+  if (submitting) return;
   prPlan = { mode, setId };
   const body = $("pr-body");
   const now = new Date();
@@ -1380,9 +1389,10 @@ function openPrSheet(mode, setId) {
 }
 
 async function submitPr() {
+  if (submitting) return;
   const title = ($("pr-title").value || "").trim() || "i18n : relecture";
   const note = $("pr-note") ? $("pr-note").value.trim() : "";
-  $("pr-submit").disabled = true; $("pr-submit").textContent = "Création en cours…";
+  setSubmitting(true); $("pr-submit").textContent = "Création en cours…";
   const results = [];
   try {
     if (prPlan.mode === "init") {
@@ -1397,12 +1407,13 @@ async function submitPr() {
         saveDrafts();
       }
     }
+    setSubmitting(false);
     $("pr-overlay").hidden = true;
     for (const r of results) showMessage("ok", `Pull request créée dans ${r.repo}.`, { href: r.url, text: "Ouvrir la PR #" + r.number });
     for (const id of Object.keys(state.data)) delete state.data[id];
     await refresh();
   } catch (e) {
-    $("pr-submit").disabled = false; $("pr-submit").textContent = "Réessayer";
+    setSubmitting(false); $("pr-submit").textContent = "Réessayer";
     $("pr-overlay").hidden = true;
     for (const r of results) showMessage("ok", `Pull request créée dans ${r.repo}.`, { href: r.url, text: "Ouvrir la PR #" + r.number });
     showMessage("error", "La pull request n'a pas pu être créée. " + explain(e) + " Tes modifications sont conservées.");
@@ -1534,9 +1545,9 @@ $("discard").addEventListener("click", () => {
 });
 $("open-pr").addEventListener("click", () => openPrSheet("drafts"));
 $("init-btn").addEventListener("click", () => openPrSheet("init", state.setId));
-$("pr-cancel").addEventListener("click", () => { $("pr-overlay").hidden = true; });
+$("pr-cancel").addEventListener("click", closePrSheet);
 $("pr-submit").addEventListener("click", submitPr);
-document.addEventListener("keydown", e => { if (e.key === "Escape" && !$("pr-overlay").hidden) $("pr-overlay").hidden = true; });
+document.addEventListener("keydown", e => { if (e.key === "Escape" && !$("pr-overlay").hidden) closePrSheet(); });
 
 /* ================= Démarrage ================= */
 showOrphanNotice();
