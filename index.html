@@ -87,6 +87,9 @@ main { max-width: 1600px; margin: 0 auto; padding: 16px 16px 120px; display: fle
 .notice.error { border-left-color: var(--st-missing); }
 .notice.ok { border-left-color: var(--st-ok); }
 .notice p { margin: 0; max-width: 75ch; }
+.notice details { flex-basis: 100%; }
+.notice summary { cursor: pointer; }
+.notice details .changes { margin-top: 8px; }
 .filters { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
 .chip { border: 1px solid var(--line); background: var(--panel); border-radius: 999px; padding: 4px 11px; cursor: pointer; display: inline-flex; gap: 7px; align-items: center; font-size: 13px; }
 .chip .n { font-variant-numeric: tabular-nums; color: var(--muted); }
@@ -653,10 +656,27 @@ textarea { width: 100%; min-height: 40px; resize: vertical; overflow-y: hidden; 
     return next;
   }
 
+  // ---------- Modifications en attente ----------
+
+  /**
+   * Sépare les modifications enregistrées sur l'ordinateur : celles dont le jeu de fichiers et la langue
+   * existent encore dans la configuration (sets), et les autres, qui ne doivent être envoyées nulle part.
+   * drafts : { "<jeu>|<langue>|<clé>": { set, lang, … } } ; les entrées qui ne sont pas des objets sont ignorées.
+   */
+  function splitDrafts(drafts, sets) {
+    const kept = {}, orphans = {};
+    for (const [k, d] of Object.entries(isPlainObject(drafts) ? drafts : {})) {
+      if (!isPlainObject(d)) continue;
+      const set = sets.find(s => s.id === d.set);
+      if (set && set.langs.includes(d.lang)) kept[k] = d; else orphans[k] = d;
+    }
+    return { kept, orphans };
+  }
+
   const api = {
     hash, detectFormat, parseFile, serializeFile, flatten, toMap, getAt, setAt, keyId,
     placeholderVars, missingPlaceholders, PLURAL_FORMS, annotatePlurals, parseJsonPlural, parseIcu, serializeIcu, stringifyJsonPlural, emptyReview, parseReview, serializeReview,
-    reviewEntries, computeRows, countStatuses, applyEdits, updateReview, initReview, STATUS,
+    reviewEntries, computeRows, countStatuses, applyEdits, updateReview, initReview, splitDrafts, STATUS,
   };
   if (typeof module !== "undefined" && module.exports) module.exports = api;
   else root.I18nCore = api;
@@ -701,7 +721,7 @@ function sset(k, v, kind) { try { const s = store(kind); if (s) v === null ? s.r
 /* ================= État ================= */
 const state = {
   token: null, user: null,
-  setId: sget("i18n-set", "local") || SETS[0].id,
+  setId: (findSet(sget("i18n-set", "local")) || SETS[0]).id, // un jeu retiré de SETS ne doit pas rester sélectionné
   langPrefs: loadLangPrefs(), filter: "todo", search: "", shown: PAGE,
   data: {},      // setId -> { sha, branch, flat:{lang:[]}, obj:{lang:{}}, review, pending:{lang:Map} }
   repoInfo: {},  // repo -> { branch }
@@ -709,9 +729,30 @@ const state = {
   loading: false,
   rawRows: new Set(), // clés affichées en texte brut plutôt que forme par forme
 };
-function loadDrafts() { try { return JSON.parse(sget("i18n-drafts", "local") || "{}"); } catch (e) { return {}; } }
+// Les modifications d'un jeu de fichiers ou d'une langue retirés de SETS sont mises de côté (jamais envoyées)
+// et signalées au démarrage ; elles reviennent d'elles-mêmes si le jeu ou la langue est remis dans SETS.
+function loadDrafts() {
+  let saved;
+  try { saved = JSON.parse(sget("i18n-drafts", "local") || "{}"); } catch (e) { return {}; }
+  const stored = loadOrphans();
+  const { kept, orphans } = C.splitDrafts({ ...stored, ...saved }, SETS);
+  if (Object.keys(orphans).length || Object.keys(stored).length) {
+    sset("i18n-drafts", JSON.stringify(kept), "local");
+    sset("i18n-drafts-orphans", Object.keys(orphans).length ? JSON.stringify(orphans) : null, "local");
+  }
+  return kept;
+}
+function loadOrphans() { try { return JSON.parse(sget("i18n-drafts-orphans", "local") || "{}") || {}; } catch (e) { return {}; } }
 function saveDrafts() { sset("i18n-drafts", JSON.stringify(state.drafts), "local"); }
-const setById = id => SETS.find(s => s.id === id) || SETS[0];
+// findSet est strict (undefined si le jeu n'existe plus) ; setById retombe sur le premier jeu, pour l'affichage seulement.
+function findSet(id) { return SETS.find(s => s.id === id); }
+const setById = id => findSet(id) || SETS[0];
+// Pour écrire sur GitHub : jamais de repli, une modification ne doit pas partir dans un autre dépôt que le sien.
+function knownSet(id) {
+  const set = findSet(id);
+  if (!set) throw new Error(`Le jeu de fichiers « ${id} » n'existe plus dans la configuration de l'outil.`);
+  return set;
+}
 const draftKey = (set, lang, id) => set + "|" + lang + "|" + id;
 
 /* ================= GitHub ================= */
@@ -1277,6 +1318,32 @@ function showMessage(kind, text, link) {
   $("messages").append(box);
 }
 
+// Modifications mises de côté par loadDrafts : on les montre pour que le texte des corrections puisse être recopié.
+function showOrphanNotice() {
+  const list = Object.values(loadOrphans());
+  if (!list.length) return;
+  const n = list.length, pl = n > 1;
+  const where = [...new Set(list.map(d => `${d.set} (${d.lang})`))].join(", ");
+  const edited = list.filter(d => d.edited);
+  const del = el("button", { class: "btn btn-sm", type: "button", text: "Supprimer ces modifications" });
+  const box = el("div", { class: "notice error", role: "status" },
+    el("p", { text: `${n} modification${pl ? "s" : ""} enregistrée${pl ? "s" : ""} sur cet ordinateur concerne${pl ? "nt" : ""} des fichiers que l'outil ne propose plus : ${where}. ${pl ? "Elles ne seront pas envoyées" : "Elle ne sera pas envoyée"} sur GitHub.` +
+      (edited.length ? " Recopie les corrections à garder avant de les supprimer." : "") }),
+    el("div", { class: "actions" }, del, el("button", { class: "btn btn-sm", type: "button", text: "Fermer", onclick: () => box.remove() })),
+    edited.length ? el("details", null, el("summary", { text: `Voir ${edited.length > 1 ? "les " + edited.length + " corrections" : "la correction"}` }),
+      el("div", { class: "changes" }, el("table", null,
+        el("thead", null, el("tr", null, el("th", { text: "Fichiers" }), el("th", { text: "Langue" }), el("th", { text: "Clé" }), el("th", { text: "Correction" }))),
+        el("tbody", null, ...edited.map(d => el("tr", null, el("td", { text: String(d.set) }), el("td", { text: String(d.lang) }),
+          el("td", { class: "k", text: String(d.id) }), el("td", { text: String(d.value) }))))))) : null);
+  // Suppression définitive : demande une confirmation, comme « Tout annuler ».
+  del.addEventListener("click", () => {
+    if (del.dataset.confirm !== "1") { del.dataset.confirm = "1"; del.textContent = "Confirmer la suppression"; setTimeout(() => { del.dataset.confirm = ""; del.textContent = "Supprimer ces modifications"; }, 4000); return; }
+    sset("i18n-drafts-orphans", null, "local");
+    box.remove();
+  });
+  $("messages").append(box);
+}
+
 /* ================= Création de la pull request ================= */
 let prPlan = null; // { mode: "drafts" | "init", setId? }
 
@@ -1319,11 +1386,11 @@ async function submitPr() {
   const results = [];
   try {
     if (prPlan.mode === "init") {
-      results.push(await createPr(setById(prPlan.setId).repo, title, note, { initSet: prPlan.setId }));
+      results.push(await createPr(knownSet(prPlan.setId).repo, title, note, { initSet: prPlan.setId }));
     } else {
-      const repos = [...new Set(draftList().map(d => setById(d.set).repo))];
+      const repos = [...new Set(draftList().map(d => knownSet(d.set).repo))];
       for (const repo of repos) {
-        const drafts = draftList().filter(d => setById(d.set).repo === repo);
+        const drafts = draftList().filter(d => knownSet(d.set).repo === repo);
         const res = await createPr(repo, title, note, { drafts });
         results.push(res);
         for (const d of drafts) delete state.drafts[draftKey(d.set, d.lang, d.id)];
@@ -1353,7 +1420,7 @@ async function createPr(repo, title, note, { drafts, initSet }) {
 
   const setIds = initSet ? [initSet] : [...new Set(drafts.map(d => d.set))];
   for (const setId of setIds) {
-    const set = setById(setId);
+    const set = knownSet(setId);
     const raws = {};
     for (const l of set.langs) raws[l] = await getFile(repo, set.path.replace("{lang}", l), head.sha);
     if (raws[set.source] === null) throw new GhError(404, `Fichier source introuvable : ${set.path.replace("{lang}", set.source)}`);
@@ -1367,6 +1434,8 @@ async function createPr(repo, title, note, { drafts, initSet }) {
     }
 
     const setDrafts = drafts.filter(d => d.set === setId);
+    const stray = setDrafts.find(d => !set.langs.includes(d.lang));
+    if (stray) throw new Error(`La langue « ${stray.lang} » n'est plus configurée pour ${set.label}.`);
     // la langue source d'abord : ses corrections font partie de la référence des autres langues
     const langs = [set.source, ...set.langs.filter(l => l !== set.source)].filter(l => setDrafts.some(d => d.lang === l));
     let sourceObj = JSON.parse(raws[set.source]);
@@ -1470,6 +1539,7 @@ $("pr-submit").addEventListener("click", submitPr);
 document.addEventListener("keydown", e => { if (e.key === "Escape" && !$("pr-overlay").hidden) $("pr-overlay").hidden = true; });
 
 /* ================= Démarrage ================= */
+showOrphanNotice();
 const saved = sget("i18n-token", "session") || sget("i18n-token", "local");
 if (saved) { $("remember").checked = !!sget("i18n-token", "local"); login(saved, !!sget("i18n-token", "local")); }
 else { $("login").hidden = false; }

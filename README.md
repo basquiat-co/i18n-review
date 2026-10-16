@@ -19,4 +19,5 @@ Node 22 ou plus, aucune installation nécessaire. Les tests tournent aussi sur G
 | `test/placeholders.test.js` | détection des variables (`{{nom}}`, `%{nom}`, `{nom}`, ICU) et des variables manquantes |
 | `test/plurals.test.js` | pluriels en sous-clés, en JSON dans une chaîne et en ICU |
 | `test/review.test.js` | fichier `.i18n-review.json`, statuts des clés, application d'une relecture |
+| `test/drafts.test.js` | tri des modifications enregistrées dont le jeu de fichiers ou la langue n'existe plus |
 | `test/page.test.js` | syntaxe des scripts de `index.html` et configuration des jeux de fichiers |
