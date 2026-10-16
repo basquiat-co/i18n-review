@@ -1,0 +1,11 @@
+{
+  "name": "i18n-review",
+  "private": true,
+  "description": "Outil de relecture des traductions Lift (fichier unique index.html, servi par GitHub Pages)",
+  "scripts": {
+    "test": "node --test \"test/*.test.js\""
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}
