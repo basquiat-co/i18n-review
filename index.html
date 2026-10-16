@@ -123,6 +123,23 @@ textarea { width: 100%; min-height: 40px; resize: vertical; border: 1px solid va
 .row.is-draft textarea { border-color: var(--mark); }
 .actions { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
 .hint { color: var(--muted); font-size: 12px; }
+.pill.neutral { color: var(--muted); border: 1px solid var(--line-strong); background: transparent; }
+
+/* ---------- Pluriels ---------- */
+.row.group .forms { grid-column: 2 / span 2; display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+.form-line { display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(0, 1.4fr); gap: 14px; align-items: start; padding-top: 10px; border-top: 1px dashed var(--line); }
+.form-line:first-child { padding-top: 0; border-top: 0; }
+.row.single .form-line { grid-template-columns: minmax(0, 1fr); }
+.row.single.group .forms { grid-column: 2; }
+.form-line.is-draft textarea { border-color: var(--mark); }
+.row.group.is-draft textarea { border-color: var(--line-strong); }
+.row.group .form-line.is-draft textarea { border-color: var(--mark); }
+.form-name { display: inline-flex; gap: 6px; align-items: center; font: 500 11px/1.4 var(--font-mono); color: var(--muted); text-transform: uppercase; letter-spacing: .05em; }
+.form-name .pill { text-transform: none; letter-spacing: 0; font-family: var(--font-sans); }
+.src.empty-src { color: var(--muted); font-style: italic; }
+.forms-inline, .src-forms { display: flex; flex-direction: column; gap: 6px; }
+.src-forms > div { display: flex; flex-direction: column; gap: 2px; }
+.form-inline { display: flex; flex-direction: column; gap: 3px; }
 .empty { padding: 40px 16px; text-align: center; color: var(--muted); }
 .more { display: flex; justify-content: center; padding: 6px 0; }
 
@@ -160,6 +177,8 @@ textarea { width: 100%; min-height: 40px; resize: vertical; border: 1px solid va
 @media (max-width: 860px) {
   .row, .row.single { grid-template-columns: minmax(0, 1fr); gap: 8px; }
   .toolbar input[type="search"] { width: 100%; }
+  .row.group .forms, .row.single.group .forms { grid-column: 1; }
+  .form-line { grid-template-columns: minmax(0, 1fr); gap: 6px; }
   .pickers { flex-basis: 100%; }
   .field { flex: 1 1 100%; min-width: 0; }
   .field label { flex: 0 0 7.5em; }
@@ -343,17 +362,110 @@ textarea { width: 100%; min-height: 40px; resize: vertical; border: 1px solid va
     }
   }
 
-  // Variables d'interpolation : {name}, {{name}}, et la variable d'un message ICU {count, plural, ...}.
+  // ---------- Variables d'interpolation ----------
+  // Reconnaît {{nom}}, %{nom}, {nom} et les messages ICU {count, plural, one {…} other {…}} :
+  // le texte des branches d'un pluriel n'est pas une variable.
   function placeholderVars(str) {
     const vars = new Set();
-    const re = /\{\{?\s*([a-z_][A-Za-z0-9_]*)\s*(?:,|\}\}?)/g;
-    let m;
-    while ((m = re.exec(str))) vars.add(m[1]);
+    for (const m of str.matchAll(/\{\{\s*([A-Za-z_][\w.]*)\s*\}\}/g)) vars.add(m[1]);
+    for (const m of str.matchAll(/%\{\s*([A-Za-z_]\w*)\s*\}/g)) vars.add(m[1]);
+    const rest = str.replace(/\{\{\s*[A-Za-z_][\w.]*\s*\}\}/g, " ").replace(/\{%[\s\S]*?%\}/g, " ").replace(/%\{[^}]*\}/g, " ");
+    try { icuMessage(rest, 0, vars); } catch (e) { /* message mal formé : on ne signale rien */ }
     return vars;
+  }
+
+  // Lit un message jusqu'à l'accolade fermante de sa branche (ou la fin) ; renvoie la position de cette accolade.
+  function icuMessage(s, i, vars) {
+    while (i < s.length) {
+      const c = s[i];
+      if (c === "'" && (s[i + 1] === "{" || s[i + 1] === "}")) { const end = s.indexOf("'", i + 1); i = end < 0 ? s.length : end + 1; continue; }
+      if (c === "{") { i = icuArgument(s, i, vars); continue; }
+      if (c === "}") return i;
+      i++;
+    }
+    return i;
+  }
+
+  function skipBalanced(s, i) { // i sur « { » ; renvoie la position après l'accolade fermante correspondante
+    let depth = 0;
+    for (; i < s.length; i++) {
+      if (s[i] === "{") depth++;
+      else if (s[i] === "}" && --depth === 0) return i + 1;
+    }
+    return s.length;
+  }
+
+  function icuArgument(s, start, vars) {
+    let i = start + 1;
+    const ws = () => { while (i < s.length && /\s/.test(s[i])) i++; };
+    ws();
+    const name = (s.slice(i).match(/^\w+/) || [""])[0];
+    if (!name) return skipBalanced(s, start);
+    i += name.length; ws();
+    if (s[i] === "}") { vars.add(name); return i + 1; }
+    if (s[i] !== ",") return skipBalanced(s, start);
+    i++; ws();
+    const type = (s.slice(i).match(/^\w+/) || [""])[0];
+    i += type.length; ws();
+    vars.add(name);
+    if (s[i] === "}") return i + 1;
+    if (s[i] !== "," || !/^(plural|select|selectordinal)$/.test(type)) return skipBalanced(s, start);
+    i++;
+    for (;;) {
+      ws();
+      if (i >= s.length) return i;
+      if (s[i] === "}") return i + 1;
+      const sel = (s.slice(i).match(/^[^\s{}]+/) || [""])[0];
+      i += sel.length; ws();
+      if (/^offset:/.test(sel)) continue;
+      if (s[i] !== "{") return skipBalanced(s, start);
+      i = icuMessage(s, i + 1, vars);
+      if (s[i] === "}") i++;
+    }
+  }
+
+  // ---------- Pluriels ----------
+  const PLURAL_FORMS = ["zero", "one", "two", "few", "many", "other"];
+  const isPluralObject = o => isPlainObject(o) && Object.keys(o).length > 1 &&
+    Object.keys(o).every(k => PLURAL_FORMS.includes(k) && typeof o[k] === "string");
+
+  // Clés dont toutes les sous-clés sont des formes du pluriel ({ zero, one, other }) : regroupées pour l'édition.
+  function annotatePlurals(rows) {
+    const byParent = new Map();
+    for (const r of rows) {
+      if (r.segs.length < 2) continue;
+      const parent = keyId(r.segs.slice(0, -1));
+      if (!byParent.has(parent)) byParent.set(parent, []);
+      byParent.get(parent).push(r);
+    }
+    for (const [parent, list] of byParent) {
+      if (list.length < 2 || !list.every(r => PLURAL_FORMS.includes(r.segs[r.segs.length - 1]))) continue;
+      for (const r of list) { r.group = parent; r.form = r.segs[r.segs.length - 1]; }
+    }
+    return rows;
+  }
+
+  // Pluriel écrit comme du JSON dans une chaîne : "{\"one\":\"…\",\"other\":\"…\"}".
+  function parseJsonPlural(str) {
+    if (typeof str !== "string" || !/^\s*\{\s*"/.test(str)) return null;
+    try { const o = JSON.parse(str); return isPluralObject(o) ? o : null; } catch (e) { return null; }
+  }
+
+  // Réécrit ce pluriel dans le même style que l'original (caractères accentués échappés en \uXXXX ou non).
+  function stringifyJsonPlural(obj, like) {
+    const out = JSON.stringify(obj);
+    if (!/\\u[0-9a-fA-F]{4}/.test(like || "")) return out;
+    return out.replace(/[\u007f-￿]/g, c => "\\u" + c.charCodeAt(0).toString(16).padStart(4, "0"));
   }
 
   function missingPlaceholders(source, target) {
     if (!target) return [];
+    const js = parseJsonPlural(source), jt = parseJsonPlural(target);
+    if (js && jt) {
+      const miss = new Set();
+      for (const f of Object.keys(js)) for (const v of missingPlaceholders(js[f], jt[f] || "")) miss.add(v);
+      return [...miss];
+    }
     const t = placeholderVars(target);
     return [...placeholderVars(source)].filter(v => !t.has(v));
   }
@@ -499,7 +611,7 @@ textarea { width: 100%; min-height: 40px; resize: vertical; border: 1px solid va
 
   const api = {
     hash, detectFormat, parseFile, serializeFile, flatten, toMap, getAt, setAt, keyId,
-    placeholderVars, missingPlaceholders, emptyReview, parseReview, serializeReview,
+    placeholderVars, missingPlaceholders, PLURAL_FORMS, annotatePlurals, parseJsonPlural, stringifyJsonPlural, emptyReview, parseReview, serializeReview,
     reviewEntries, computeRows, countStatuses, applyEdits, updateReview, initReview, STATUS,
   };
   if (typeof module !== "undefined" && module.exports) module.exports = api;
@@ -650,7 +762,7 @@ function currentRows() {
     r.ref = refMap && refMap.get(r.id) ? refMap.get(r.id).value : null;
     r.draft = state.drafts[draftKey(set.id, state.lang, r.id)] || null;
   }
-  return rows;
+  return C.annotatePlurals(rows);
 }
 function matchesFilter(r) {
   if (state.filter === "all") return true;
@@ -710,21 +822,46 @@ function renderInner() {
   const hasReview = Object.keys(C.reviewEntries(d.review, set.id, set.source)).length > 0;
   $("init-notice").hidden = hasReview;
 
-  const visible = all.filter(r => matchesFilter(r) && matchesSearch(r));
+  const units = buildUnits(all);
   const isSource = state.lang === set.source;
-  $("count-line").textContent = `${visible.length} clé${visible.length > 1 ? "s" : ""} · ${set.repo.split("/")[1]} · ${set.path.replace("{lang}", state.lang)}`;
-  $("validate-visible").disabled = !visible.some(r => r.status !== "ok" && !r.draft && r.value);
+  $("count-line").textContent = `${units.length} clé${units.length > 1 ? "s" : ""} · ${set.repo.split("/")[1]} · ${set.path.replace("{lang}", state.lang)}`;
+  $("validate-visible").disabled = !units.some(u => unitRows(u).some(canValidateRow));
 
-  if (!visible.length) {
+  if (!units.length) {
     const msg = state.filter === "todo" && !state.search ? "Tout est relu pour cette langue. Rien à faire ici." : "Aucune clé ne correspond.";
     rowsEl.replaceChildren(el("div", { class: "empty", text: msg }));
   } else {
-    rowsEl.replaceChildren(...visible.slice(0, state.shown).map(r => renderRow(r, set, isSource)));
+    rowsEl.replaceChildren(...units.slice(0, state.shown).map(u => renderUnit(u, set, isSource)));
   }
-  $("more").hidden = visible.length <= state.shown;
-  $("more-btn").textContent = `Afficher la suite (${visible.length - state.shown} restantes)`;
+  $("more").hidden = units.length <= state.shown;
+  $("more-btn").textContent = `Afficher la suite (${units.length - state.shown} restantes)`;
   renderSendbar();
 }
+
+// Une unité affichée est soit une clé simple, soit un pluriel (toutes ses formes ensemble).
+// Un pluriel s'affiche en entier dès qu'une de ses formes correspond au filtre et à la recherche.
+function buildUnits(all) {
+  const groups = new Map();
+  for (const r of all) if (r.group) { if (!groups.has(r.group)) groups.set(r.group, []); groups.get(r.group).push(r); }
+  const units = [], seen = new Set();
+  for (const r of all) {
+    if (r.group) {
+      if (seen.has(r.group)) continue;
+      seen.add(r.group);
+      const rows = groups.get(r.group);
+      if (rows.some(matchesFilter) && rows.some(matchesSearch)) units.push({ group: r.group, rows });
+    } else if (matchesFilter(r) && matchesSearch(r)) units.push({ row: r });
+  }
+  return units;
+}
+const unitRows = u => u.group ? u.rows : [u.row];
+function renderUnit(u, set, isSource) { return u.group ? renderGroup(u.group, u.rows, set, isSource) : renderRow(u.row, set, isSource); }
+
+// Une forme peut être validée telle quelle si elle a un texte, ou si la source est elle-même vide (ex. « zero »: "").
+function canValidateRow(r) { return !r.draft && r.status !== "ok" && (r.value !== "" || r.source === ""); }
+
+const FORM_LABEL = { zero: "zéro", one: "un", two: "deux", few: "quelques", many: "beaucoup", other: "plusieurs" };
+const STATUS_ORDER = ["missing", "source", "modified", "new", "pending", "ok"];
 
 function renderFilters(all) {
   const counts = C.countStatuses(all);
@@ -747,8 +884,21 @@ function softUpdate(id) {
     renderFilters(all);
     renderSendbar();
     const r = all.find(x => x.id === id);
-    const old = [...document.querySelectorAll("#rows .row")].find(n => n.dataset.id === id);
-    if (r && old && old.isConnected) old.replaceWith(renderRow(r, set, state.lang === set.source));
+    if (!r) return;
+    const unitId = r.group || r.id;
+    const old = [...document.querySelectorAll("#rows .row")].find(n => n.dataset.id === unitId);
+    const unit = r.group ? { group: r.group, rows: all.filter(x => x.group === r.group) } : { row: r };
+    if (!old) return;
+    // Laisse le clic qui a déclenché la saisie déplacer le focus, puis remplace la carte et rend le focus
+    // au champ choisi (souvent une autre forme du même pluriel).
+    setTimeout(() => {
+      if (!old.isConnected) return;
+      const a = document.activeElement;
+      const focus = a && a.tagName === "TEXTAREA" && old.contains(a) ? { id: a.id, s: a.selectionStart, e: a.selectionEnd } : null;
+      old.replaceWith(renderUnit(unit, set, state.lang === set.source));
+      const t = focus && document.getElementById(focus.id);
+      if (t) { t.focus(); try { t.setSelectionRange(focus.s, focus.e); } catch (e) {} }
+    }, 0);
   } finally { softUpdating = false; }
 }
 
@@ -759,35 +909,116 @@ function renderKey(r) {
   return node;
 }
 
+function makeTextarea(id, value, label) {
+  return el("textarea", { id, dir: "auto", rows: String(Math.min(8, Math.max(1, Math.ceil(value.length / 60)))), "aria-label": label });
+}
+function varWarning(vars) {
+  return vars.length ? el("div", { class: "warn", text: "Variable absente : " + vars.map(v => "{" + v + "}").join(", ") }) : null;
+}
+// Les formes « zéro » et « un » peuvent légitimement omettre le nombre (« Aucun contrat », « 1 contrat »).
+function formVars(form, source, value) {
+  const miss = C.missingPlaceholders(source, value);
+  return form === "zero" || form === "one" ? miss.filter(v => v !== "count") : miss;
+}
+
 function renderRow(r, set, isSource) {
   const current = r.draft ? r.draft.value : r.value;
+  const jsonForms = C.parseJsonPlural(r.source);
   const meta = el("div", { class: "meta" },
     el("span", { class: "pill st-" + r.status, text: PILL[r.status] }),
+    jsonForms ? el("span", { class: "pill neutral", text: "Pluriel" }) : null,
     r.draft ? el("span", { class: "pill st-draft", text: r.draft.edited ? "Corrigée" : "Validée" }) : null,
     r.pending ? el("a", { href: r.pending.url, target: "_blank", rel: "noopener", class: "hint", text: "PR #" + r.pending.number }) : null,
   );
-  const missingVars = isSource ? [] : C.missingPlaceholders(r.source, current);
-  const keyCell = el("div", { class: "cell" }, renderKey(r), meta,
-    missingVars.length ? el("div", { class: "warn", text: "Variable absente : " + missingVars.map(v => "{" + v + "}").join(", ") }) : null);
+  const keyCell = el("div", { class: "cell" }, renderKey(r), meta, isSource ? null : varWarning(C.missingPlaceholders(r.source, current)));
+  const baseId = "t-" + set.id + "-" + state.lang + "-" + r.id;
+  const langName = LANG_NAMES[state.lang] || state.lang;
 
-  const ta = el("textarea", { id: "t-" + set.id + "-" + state.lang + "-" + r.id, dir: "auto", rows: String(Math.min(8, Math.max(1, Math.ceil(current.length / 60)))), "aria-label": "Traduction " + (LANG_NAMES[state.lang] || state.lang) + " de " + r.id });
-  ta.value = current;
-  ta.addEventListener("change", () => onEdit(r, ta.value, false, true));
-  ta.addEventListener("keydown", e => {
-    if ((e.metaKey || e.ctrlKey) && e.key === "Enter") { e.preventDefault(); onEdit(r, ta.value, true); focusNext(ta); }
-  });
-  const canValidate = !r.draft && r.status !== "ok" && current !== "";
+  // Pluriel écrit en JSON dans la chaîne : une zone de saisie par forme, réassemblées dans le même format.
+  let editors, readCurrent;
+  if (jsonForms) {
+    const cur = C.parseJsonPlural(current) || {};
+    const forms = [...Object.keys(jsonForms), ...Object.keys(cur).filter(f => !(f in jsonForms))];
+    const tas = forms.map(f => { const t = makeTextarea(baseId + "-" + f, cur[f] || "", `Traduction ${langName} de ${r.id}, forme ${FORM_LABEL[f] || f}`); t.value = cur[f] || ""; return [f, t]; });
+    readCurrent = () => {
+      const obj = {}; for (const [f, t] of tas) obj[f] = t.value;
+      const orig = C.parseJsonPlural(r.value);
+      if (orig && Object.keys(obj).every(f => obj[f] === (orig[f] || "")) && Object.keys(orig).every(f => f in obj)) return r.value;
+      return C.stringifyJsonPlural(obj, r.value || r.source);
+    };
+    editors = el("div", { class: "forms-inline" }, ...tas.map(([f, t]) => el("label", { class: "form-inline" }, el("span", { class: "form-name", text: FORM_LABEL[f] || f }), t)));
+    for (const [, t] of tas) wireTextarea(t, r, readCurrent);
+  } else {
+    const ta = makeTextarea(baseId, current, `Traduction ${langName} de ${r.id}`);
+    ta.value = current;
+    readCurrent = () => ta.value;
+    wireTextarea(ta, r, readCurrent);
+    editors = ta;
+  }
+  const canValidate = canValidateRow(r) && (current !== "" || r.source === "");
   const actions = el("div", { class: "actions" },
-    canValidate ? el("button", { class: "btn btn-sm", type: "button", onclick: () => onEdit(r, ta.value, true), text: "Valider" }) : null,
+    canValidate ? el("button", { class: "btn btn-sm", type: "button", onclick: () => onEdit(r, readCurrent(), true), text: "Valider" }) : null,
     r.draft ? el("button", { class: "btn btn-sm", type: "button", onclick: () => undo(r), text: "Annuler" }) : null,
     el("span", { class: "hint kbd-hint", text: "⌘/Ctrl + Entrée : valider et passer à la suivante" }),
   );
-  const editCell = el("div", { class: "cell" }, el("span", { class: "lang-tag", text: state.lang }), ta, actions);
+  const editCell = el("div", { class: "cell" }, el("span", { class: "lang-tag", text: state.lang }), editors, actions);
 
   if (isSource) return el("div", { class: "row single" + (r.draft ? " is-draft" : ""), "data-id": r.id }, keyCell, editCell);
-  const srcCell = el("div", { class: "cell" }, el("span", { class: "lang-tag", text: set.source }), el("div", { class: "src", dir: "auto", text: r.source }),
+  const srcText = jsonForms
+    ? el("div", { class: "src-forms" }, ...Object.keys(jsonForms).map(f => el("div", null, el("span", { class: "form-name", text: FORM_LABEL[f] || f }), el("span", { class: "src" + (jsonForms[f] ? "" : " empty-src"), dir: "auto", text: jsonForms[f] || "(vide)" }))))
+    : el("div", { class: "src", dir: "auto", text: r.source });
+  const srcCell = el("div", { class: "cell" }, el("span", { class: "lang-tag", text: set.source }), srcText,
     r.ref !== null ? el("div", { class: "ref", dir: "auto" }, el("span", { class: "lang-tag", text: state.ref + " " }), r.ref) : null);
   return el("div", { class: "row" + (r.draft ? " is-draft" : ""), "data-id": r.id }, keyCell, srcCell, editCell);
+}
+
+function wireTextarea(ta, r, read) {
+  ta.addEventListener("change", () => onEdit(r, read(), false, true));
+  ta.addEventListener("keydown", e => {
+    if ((e.metaKey || e.ctrlKey) && e.key === "Enter") { e.preventDefault(); onEdit(r, read(), true); focusNext(ta); }
+  });
+}
+
+// Un pluriel ({ zero, one, other }) : une seule carte, une ligne par forme.
+function renderGroup(groupId, rows, set, isSource) {
+  const status = STATUS_ORDER.find(s => rows.some(r => r.status === s)) || "ok";
+  const drafts = rows.filter(r => r.draft);
+  const pending = rows.find(r => r.pending);
+  const segs = rows[0].segs.slice(0, -1);
+  const warnings = [];
+  if (!isSource) for (const r of rows) {
+    const v = formVars(r.form, r.source, r.draft ? r.draft.value : r.value);
+    if (v.length) warnings.push(`forme « ${FORM_LABEL[r.form] || r.form} » : ` + v.map(x => "{" + x + "}").join(", "));
+  }
+  const keyCell = el("div", { class: "cell" },
+    renderKey({ segs, id: groupId }),
+    el("div", { class: "meta" },
+      el("span", { class: "pill st-" + status, text: PILL[status] }),
+      el("span", { class: "pill neutral", text: "Pluriel · " + rows.length + " formes" }),
+      drafts.length ? el("span", { class: "pill st-draft", text: drafts.some(d => d.draft.edited) ? "Corrigé" : "Validé" }) : null,
+      pending ? el("a", { href: pending.pending.url, target: "_blank", rel: "noopener", class: "hint", text: "PR #" + pending.pending.number }) : null),
+    warnings.length ? el("div", { class: "warn", text: "Variable absente, " + warnings.join(" ; ") }) : null);
+
+  const langName = LANG_NAMES[state.lang] || state.lang;
+  const lines = rows.map(r => {
+    const current = r.draft ? r.draft.value : r.value;
+    const ta = makeTextarea("t-" + set.id + "-" + state.lang + "-" + r.id, current, `Traduction ${langName} de ${groupId}, forme ${FORM_LABEL[r.form] || r.form}`);
+    ta.value = current;
+    wireTextarea(ta, r, () => ta.value);
+    const name = el("span", { class: "form-name" }, FORM_LABEL[r.form] || r.form, r.status !== status ? el("span", { class: "pill st-" + r.status, text: PILL[r.status] }) : null);
+    const edit = el("div", { class: "cell" }, isSource ? name : el("span", { class: "lang-tag", text: state.lang }), ta);
+    if (isSource) return el("div", { class: "form-line" + (r.draft ? " is-draft" : "") }, edit);
+    const src = el("div", { class: "cell" }, name,
+      el("div", { class: "src" + (r.source === "" ? " empty-src" : ""), dir: "auto", text: r.source === "" ? "(vide)" : r.source }),
+      r.ref !== null ? el("div", { class: "ref", dir: "auto" }, el("span", { class: "lang-tag", text: state.ref + " " }), r.ref) : null);
+    return el("div", { class: "form-line" + (r.draft ? " is-draft" : "") }, src, edit);
+  });
+  const actions = el("div", { class: "actions" },
+    rows.some(canValidateRow) ? el("button", { class: "btn btn-sm", type: "button", onclick: () => validateRows(rows), text: "Valider le pluriel" }) : null,
+    drafts.length ? el("button", { class: "btn btn-sm", type: "button", onclick: () => { for (const r of drafts) delete state.drafts[draftKey(state.setId, state.lang, r.id)]; saveDrafts(); render(); }, text: "Annuler" }) : null,
+    el("span", { class: "hint kbd-hint", text: "⌘/Ctrl + Entrée : valider une forme et passer à la suivante" }));
+  return el("div", { class: "row group" + (isSource ? " single" : "") + (drafts.length ? " is-draft" : ""), "data-id": groupId },
+    keyCell, el("div", { class: "forms" }, ...lines, actions));
 }
 
 function focusNext(ta) {
@@ -801,7 +1032,8 @@ function focusNext(ta) {
 function onEdit(r, value, explicit, soft) {
   const set = setById(state.setId), k = draftKey(set.id, state.lang, r.id);
   const existing = state.drafts[k];
-  const make = edited => ({ set: set.id, lang: state.lang, id: r.id, segs: r.segs, value, original: r.value, exists: r.exists, source: r.source, edited });
+  // « edited » = à écrire dans le fichier : texte changé, ou clé encore absente de la langue cible.
+  const make = edited => ({ set: set.id, lang: state.lang, id: r.id, segs: r.segs, value, original: r.value, exists: r.exists, source: r.source, edited: edited || !r.exists });
   if (value === "" && r.source !== "") {
     delete state.drafts[k];                       // une traduction vide ne peut pas être validée
   } else if (value !== r.value) {
@@ -820,13 +1052,16 @@ function undo(r) {
   delete state.drafts[draftKey(state.setId, state.lang, r.id)];
   saveDrafts(); render();
 }
-function validateVisible() {
+function validateRows(rows) {
   const set = setById(state.setId);
-  for (const r of currentRows().filter(r => matchesFilter(r) && matchesSearch(r))) {
-    if (r.draft || r.status === "ok" || !r.value) continue;
-    state.drafts[draftKey(set.id, state.lang, r.id)] = { set: set.id, lang: state.lang, id: r.id, segs: r.segs, value: r.value, original: r.value, exists: r.exists, source: r.source, edited: false };
+  for (const r of rows) {
+    if (!canValidateRow(r)) continue;
+    state.drafts[draftKey(set.id, state.lang, r.id)] = { set: set.id, lang: state.lang, id: r.id, segs: r.segs, value: r.value, original: r.value, exists: r.exists, source: r.source, edited: !r.exists };
   }
   saveDrafts(); render();
+}
+function validateVisible() {
+  validateRows(buildUnits(currentRows()).flatMap(unitRows));
 }
 
 function draftList() { return Object.values(state.drafts); }
@@ -1023,7 +1258,7 @@ $("login-form").addEventListener("submit", e => {
   login(t, $("remember").checked);
 });
 $("logout").addEventListener("click", () => logout());
-$("set-select").addEventListener("change", e => { state.setId = e.target.value; sset("i18n-set", state.setId, "local"); state.lang = null; state.shown = PAGE; refresh(); });
+$("set-select").addEventListener("change", e => { state.setId = e.target.value; sset("i18n-set", state.setId, "local"); state.lang = null; state.shown = PAGE; state.search = ""; $("search").value = ""; refresh(); });
 $("lang-select").addEventListener("change", e => { state.lang = e.target.value; state.shown = PAGE; render(); });
 $("ref-select").addEventListener("change", e => { state.ref = e.target.value; render(); });
 let searchTimer = null;
