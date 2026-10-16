@@ -445,6 +445,49 @@ textarea { width: 100%; min-height: 40px; resize: vertical; border: 1px solid va
     return rows;
   }
 
+  // ---------- Messages ICU découpés pour l'édition ----------
+  // « Membres : {names}{more, plural, =0 {} one { et # autre} other { et # autres}} » devient
+  // [texte "Membres : {names}", arg more/plural avec ses branches]. Seuls les plural/select du premier niveau
+  // sont découpés ; le contenu d'une branche reste du texte (il peut contenir {names} ou un ICU imbriqué).
+  function parseIcu(s) {
+    if (typeof s !== "string" || s.indexOf("{") < 0) return null;
+    const parts = [];
+    let text = "", i = 0, found = false;
+    const header = /^\{\s*(\w+)\s*,\s*(plural|select|selectordinal)\s*,/;
+    while (i < s.length) {
+      if (s[i] !== "{") { text += s[i++]; continue; }
+      const m = s.slice(i).match(header);
+      if (!m) { const end = skipBalanced(s, i); text += s.slice(i, end); i = end; continue; }
+      let j = i + m[0].length;
+      const arg = { t: "arg", name: m[1], type: m[2], offset: null, branches: [] };
+      for (;;) {
+        while (j < s.length && /\s/.test(s[j])) j++;
+        if (j >= s.length) return null;
+        if (s[j] === "}") { j++; break; }
+        const sel = (s.slice(j).match(/^[^\s{}]+/) || [""])[0];
+        if (!sel) return null;
+        j += sel.length;
+        if (/^offset:/.test(sel)) { arg.offset = sel; continue; }
+        while (j < s.length && /\s/.test(s[j])) j++;
+        if (s[j] !== "{") return null;
+        const end = skipBalanced(s, j);
+        if (s[end - 1] !== "}") return null;
+        arg.branches.push({ sel, v: s.slice(j + 1, end - 1) });
+        j = end;
+      }
+      if (!arg.branches.length) return null;
+      if (text) { parts.push({ t: "text", v: text }); text = ""; }
+      parts.push(arg); found = true; i = j;
+    }
+    if (text) parts.push({ t: "text", v: text });
+    return found ? parts : null;
+  }
+
+  function serializeIcu(parts) {
+    return parts.map(p => p.t === "text" ? p.v
+      : "{" + p.name + ", " + p.type + ", " + (p.offset ? p.offset + " " : "") + p.branches.map(b => b.sel + " {" + b.v + "}").join(" ") + "}").join("");
+  }
+
   // Pluriel écrit comme du JSON dans une chaîne : "{\"one\":\"…\",\"other\":\"…\"}".
   function parseJsonPlural(str) {
     if (typeof str !== "string" || !/^\s*\{\s*"/.test(str)) return null;
@@ -611,7 +654,7 @@ textarea { width: 100%; min-height: 40px; resize: vertical; border: 1px solid va
 
   const api = {
     hash, detectFormat, parseFile, serializeFile, flatten, toMap, getAt, setAt, keyId,
-    placeholderVars, missingPlaceholders, PLURAL_FORMS, annotatePlurals, parseJsonPlural, stringifyJsonPlural, emptyReview, parseReview, serializeReview,
+    placeholderVars, missingPlaceholders, PLURAL_FORMS, annotatePlurals, parseJsonPlural, parseIcu, serializeIcu, stringifyJsonPlural, emptyReview, parseReview, serializeReview,
     reviewEntries, computeRows, countStatuses, applyEdits, updateReview, initReview, STATUS,
   };
   if (typeof module !== "undefined" && module.exports) module.exports = api;
@@ -663,6 +706,7 @@ const state = {
   repoInfo: {},  // repo -> { branch }
   drafts: loadDrafts(), // "set|lang|id" -> { set, lang, id, segs, value, original, source, edited }
   loading: false,
+  rawRows: new Set(), // clés affichées en texte brut plutôt que forme par forme
 };
 function loadDrafts() { try { return JSON.parse(sget("i18n-drafts", "local") || "{}"); } catch (e) { return {}; } }
 function saveDrafts() { sset("i18n-drafts", JSON.stringify(state.drafts), "local"); }
@@ -921,12 +965,64 @@ function formVars(form, source, value) {
   return form === "zero" || form === "one" ? miss.filter(v => v !== "count") : miss;
 }
 
+// Champs d'édition d'un pluriel écrit dans une seule chaîne (JSON ou ICU), ou null pour un texte simple.
+// fields : [{ label, value }], src : [{ label, value }], build(values) → la chaîne complète.
+function compositeOf(r, current) {
+  const json = C.parseJsonPlural(r.source);
+  if (json) {
+    const cur = C.parseJsonPlural(current) || {};
+    const forms = [...Object.keys(json), ...Object.keys(cur).filter(f => !(f in json))];
+    return {
+      kind: "Pluriel",
+      fields: forms.map(f => ({ label: FORM_LABEL[f] || f, value: cur[f] || "" })),
+      src: Object.keys(json).map(f => ({ label: FORM_LABEL[f] || f, value: json[f] })),
+      build: vals => { const o = {}; forms.forEach((f, i) => o[f] = vals[i]); return C.stringifyJsonPlural(o, r.value || r.source); },
+    };
+  }
+  const sp = C.parseIcu(r.source);
+  if (!sp) return null;
+  // La traduction garde sa propre structure ; une clé encore vide part de celle du français, sans texte.
+  const tp = current === "" ? JSON.parse(JSON.stringify(sp)).map(p => p.t === "text" ? { ...p, v: "" } : { ...p, branches: p.branches.map(b => ({ ...b, v: "" })) })
+    : C.parseIcu(current);
+  if (!tp) return null;
+  const args = tp.filter(p => p.t === "arg").length;
+  const kind = tp.every(p => p.t !== "arg" || p.type === "plural") ? "Pluriel" : "Variantes";
+  const branchLabel = (p, sel) => {
+    const lab = p.type === "select" ? (sel === "other" ? "autre cas" : sel)
+      : /^=\d+$/.test(sel) ? "exactement " + sel.slice(1) : (FORM_LABEL[sel] || sel);
+    return args > 1 || p.type !== "plural" ? `${p.name} · ${lab}` : lab;
+  };
+  const describe = (parts, ref) => {
+    const out = [];
+    parts.forEach((p, i) => {
+      if (p.t === "text") {
+        const twin = ref && ref[i] && ref[i].t === "text" ? ref[i].v : "";
+        if (p.v.trim() !== "" || twin.trim() !== "") out.push({ label: "texte", value: p.v, at: [i] });
+      } else p.branches.forEach((b, k) => out.push({ label: branchLabel(p, b.sel), value: b.v, at: [i, k] }));
+    });
+    return out;
+  };
+  const fields = describe(tp, sp);
+  return {
+    kind,
+    fields,
+    src: describe(sp, null).map(f => ({ label: f.label, value: f.value })),
+    build: vals => {
+      const parts = JSON.parse(JSON.stringify(tp));
+      fields.forEach((f, n) => { if (f.at.length === 1) parts[f.at[0]].v = vals[n]; else parts[f.at[0]].branches[f.at[1]].v = vals[n]; });
+      return C.serializeIcu(parts);
+    },
+  };
+}
+
 function renderRow(r, set, isSource) {
   const current = r.draft ? r.draft.value : r.value;
-  const jsonForms = C.parseJsonPlural(r.source);
+  const rk = draftKey(set.id, state.lang, r.id);
+  const comp = state.rawRows.has(rk) ? null : compositeOf(r, current);
+  const splittable = !!(C.parseJsonPlural(r.source) || C.parseIcu(r.source));
   const meta = el("div", { class: "meta" },
     el("span", { class: "pill st-" + r.status, text: PILL[r.status] }),
-    jsonForms ? el("span", { class: "pill neutral", text: "Pluriel" }) : null,
+    splittable ? el("span", { class: "pill neutral", text: comp ? comp.kind : "Pluriel" }) : null,
     r.draft ? el("span", { class: "pill st-draft", text: r.draft.edited ? "Corrigée" : "Validée" }) : null,
     r.pending ? el("a", { href: r.pending.url, target: "_blank", rel: "noopener", class: "hint", text: "PR #" + r.pending.number }) : null,
   );
@@ -934,20 +1030,18 @@ function renderRow(r, set, isSource) {
   const baseId = "t-" + set.id + "-" + state.lang + "-" + r.id;
   const langName = LANG_NAMES[state.lang] || state.lang;
 
-  // Pluriel écrit en JSON dans la chaîne : une zone de saisie par forme, réassemblées dans le même format.
+  // Pluriel dans une seule chaîne : une zone par forme, réassemblées dans le même format.
   let editors, readCurrent;
-  if (jsonForms) {
-    const cur = C.parseJsonPlural(current) || {};
-    const forms = [...Object.keys(jsonForms), ...Object.keys(cur).filter(f => !(f in jsonForms))];
-    const tas = forms.map(f => { const t = makeTextarea(baseId + "-" + f, cur[f] || "", `Traduction ${langName} de ${r.id}, forme ${FORM_LABEL[f] || f}`); t.value = cur[f] || ""; return [f, t]; });
+  if (comp) {
+    const tas = comp.fields.map((f, n) => { const t = makeTextarea(baseId + "-" + n, f.value, `Traduction ${langName} de ${r.id}, ${f.label}`); t.value = f.value; return t; });
     readCurrent = () => {
-      const obj = {}; for (const [f, t] of tas) obj[f] = t.value;
-      const orig = C.parseJsonPlural(r.value);
-      if (orig && Object.keys(obj).every(f => obj[f] === (orig[f] || "")) && Object.keys(orig).every(f => f in obj)) return r.value;
-      return C.stringifyJsonPlural(obj, r.value || r.source);
+      const vals = tas.map(t => t.value);
+      if (vals.every((v, n) => v === comp.fields[n].value)) return current;   // rien touché : texte d'origine intact
+      return comp.build(vals);
     };
-    editors = el("div", { class: "forms-inline" }, ...tas.map(([f, t]) => el("label", { class: "form-inline" }, el("span", { class: "form-name", text: FORM_LABEL[f] || f }), t)));
-    for (const [, t] of tas) wireTextarea(t, r, readCurrent);
+    editors = el("div", { class: "forms-inline" }, ...tas.map((t, n) => el("label", { class: "form-inline" }, el("span", { class: "form-name", text: comp.fields[n].label }), t)),
+      comp.src.some(f => f.value.includes("#")) ? el("span", { class: "hint", text: "# est remplacé par le nombre ; garde les {variables} telles quelles." }) : null);
+    for (const t of tas) wireTextarea(t, r, readCurrent);
   } else {
     const ta = makeTextarea(baseId, current, `Traduction ${langName} de ${r.id}`);
     ta.value = current;
@@ -955,17 +1049,21 @@ function renderRow(r, set, isSource) {
     wireTextarea(ta, r, readCurrent);
     editors = ta;
   }
+  const toggleRaw = () => { if (state.rawRows.has(rk)) state.rawRows.delete(rk); else state.rawRows.add(rk); render(); };
   const canValidate = canValidateRow(r) && (current !== "" || r.source === "");
   const actions = el("div", { class: "actions" },
     canValidate ? el("button", { class: "btn btn-sm", type: "button", onclick: () => onEdit(r, readCurrent(), true), text: "Valider" }) : null,
     r.draft ? el("button", { class: "btn btn-sm", type: "button", onclick: () => undo(r), text: "Annuler" }) : null,
+    splittable && (comp || C.parseIcu(current) || C.parseJsonPlural(current) || current === "")
+      ? el("button", { class: "linkbtn", type: "button", onclick: toggleRaw, text: comp ? "Texte brut" : "Par formes" }) : null,
     el("span", { class: "hint kbd-hint", text: "⌘/Ctrl + Entrée : valider et passer à la suivante" }),
   );
   const editCell = el("div", { class: "cell" }, el("span", { class: "lang-tag", text: state.lang }), editors, actions);
 
   if (isSource) return el("div", { class: "row single" + (r.draft ? " is-draft" : ""), "data-id": r.id }, keyCell, editCell);
-  const srcText = jsonForms
-    ? el("div", { class: "src-forms" }, ...Object.keys(jsonForms).map(f => el("div", null, el("span", { class: "form-name", text: FORM_LABEL[f] || f }), el("span", { class: "src" + (jsonForms[f] ? "" : " empty-src"), dir: "auto", text: jsonForms[f] || "(vide)" }))))
+  const srcText = comp
+    ? el("div", { class: "src-forms" }, ...comp.src.map(f => el("div", null, el("span", { class: "form-name", text: f.label }),
+        el("span", { class: "src" + (f.value ? "" : " empty-src"), dir: "auto", text: f.value || "(vide)" }))))
     : el("div", { class: "src", dir: "auto", text: r.source });
   const srcCell = el("div", { class: "cell" }, el("span", { class: "lang-tag", text: set.source }), srcText,
     r.ref !== null ? el("div", { class: "ref", dir: "auto" }, el("span", { class: "lang-tag", text: state.ref + " " }), r.ref) : null);
