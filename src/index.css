@@ -1,0 +1,120 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+
+@custom-variant dark (&:is(.dark *));
+
+/* ---------- Jetons (shadcn) : neutres ardoise, accent indigo ---------- */
+:root {
+  --radius: 0.75rem;
+  --background: oklch(0.985 0.003 264);
+  --foreground: oklch(0.2 0.025 265);
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.2 0.025 265);
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.2 0.025 265);
+  --primary: oklch(0.51 0.22 276);
+  --primary-foreground: oklch(0.99 0 0);
+  --secondary: oklch(0.965 0.006 265);
+  --secondary-foreground: oklch(0.25 0.025 265);
+  --muted: oklch(0.965 0.006 265);
+  --muted-foreground: oklch(0.52 0.02 265);
+  --accent: oklch(0.955 0.018 276);
+  --accent-foreground: oklch(0.25 0.04 276);
+  --destructive: oklch(0.56 0.21 25);
+  --border: oklch(0.915 0.008 265);
+  --input: oklch(0.885 0.01 265);
+  --ring: oklch(0.6 0.19 276);
+
+  /* Statuts : le point coloré accompagne toujours un libellé, jamais seul. */
+  --st-missing: #d03b3b;
+  --st-source: #e9a100;
+  --st-modified: #ec835a;
+  --st-new: oklch(0.58 0.17 252);
+  --st-pending: oklch(0.68 0.02 265);
+  --st-ok: #0ca30c;
+  --draft: oklch(0.51 0.22 276);
+  --draft-bg: oklch(0.975 0.012 276);
+  --success: oklch(0.52 0.13 155);
+}
+
+.dark {
+  --background: oklch(0.155 0.018 265);
+  --foreground: oklch(0.95 0.006 265);
+  --card: oklch(0.195 0.02 265);
+  --card-foreground: oklch(0.95 0.006 265);
+  --popover: oklch(0.21 0.02 265);
+  --popover-foreground: oklch(0.95 0.006 265);
+  --primary: oklch(0.6 0.2 277);
+  --primary-foreground: oklch(0.99 0 0);
+  --secondary: oklch(0.25 0.02 265);
+  --secondary-foreground: oklch(0.95 0.006 265);
+  --muted: oklch(0.24 0.02 265);
+  --muted-foreground: oklch(0.7 0.02 265);
+  --accent: oklch(0.27 0.035 276);
+  --accent-foreground: oklch(0.95 0.006 265);
+  --destructive: oklch(0.68 0.19 22);
+  --border: oklch(1 0 0 / 0.09);
+  --input: oklch(1 0 0 / 0.14);
+  --ring: oklch(0.62 0.19 277);
+
+  --st-new: oklch(0.7 0.14 252);
+  --st-pending: oklch(0.62 0.02 265);
+  --draft: oklch(0.72 0.15 277);
+  --draft-bg: oklch(0.21 0.03 276);
+  --success: oklch(0.74 0.14 155);
+}
+
+@theme inline {
+  --font-sans: "Geist Variable", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: "Geist Mono Variable", ui-monospace, "SF Mono", Menlo, monospace;
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-draft: var(--draft);
+  --color-draft-bg: var(--draft-bg);
+  --color-success: var(--success);
+}
+
+@layer base {
+  * { @apply border-border outline-ring/50; }
+  html { color-scheme: light; }
+  html.dark { color-scheme: dark; }
+  body { @apply bg-background text-foreground antialiased; }
+}
+
+/* ---------- Grille des clés : clé | source | une colonne par langue ---------- */
+@layer components {
+  .key-grid { display: grid; grid-template-columns: minmax(0, 1fr); gap: 0.75rem; }
+  .forms-grid { display: flex; flex-direction: column; gap: 0.75rem; min-width: 0; }
+  .form-line { display: flex; flex-direction: column; gap: 0.5rem; }
+
+  @media (min-width: 860px) {
+    .key-grid { grid-template-columns: minmax(0, 0.8fr) repeat(var(--cols, 2), minmax(0, 1fr)); gap: 1rem; }
+    /* Un pluriel : les formes s'alignent sur les colonnes de la grille parente. */
+    .forms-grid { grid-column: 2 / -1; display: grid; grid-template-columns: subgrid; row-gap: 0.75rem; }
+    .form-line { grid-column: 1 / -1; display: grid; grid-template-columns: subgrid; align-items: start; }
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { transition: none !important; animation: none !important; }
+}

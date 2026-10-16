@@ -1,13 +1,12 @@
-"use strict";
-const test = require("node:test");
-const assert = require("node:assert/strict");
-const C = require("./load-core").loadCore();
+import { test } from "vitest";
+import assert from "node:assert/strict";
+import * as C from "../src/lib/core";
 
 const SETS = [
   { id: "app", repo: "o/app", langs: ["fr", "de"], source: "fr" },
   { id: "bff", repo: "o/bff", langs: ["fr", "en"], source: "fr" },
 ];
-const draft = (set, lang, id) => ({ set, lang, id, segs: [id], value: "v", original: "", source: "s", edited: true });
+const draft = (set: string, lang: string, id: string) => ({ set, lang, id, segs: [id], value: "v", original: "", source: "s", edited: true });
 
 test("splitDrafts : garde les modifications d'un jeu et d'une langue configurés", () => {
   const drafts = { "app|de|a": draft("app", "de", "a"), "bff|en|b": draft("bff", "en", "b"), "app|fr|c": draft("app", "fr", "c") };

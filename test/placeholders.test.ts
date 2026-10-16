@@ -1,9 +1,8 @@
-"use strict";
-const test = require("node:test");
-const assert = require("node:assert/strict");
-const C = require("./load-core").loadCore();
+import { test } from "vitest";
+import assert from "node:assert/strict";
+import * as C from "../src/lib/core";
 
-const vars = s => [...C.placeholderVars(s)];
+const vars = (s: string) => [...C.placeholderVars(s)];
 
 test("placeholderVars : syntaxes {{nom}}, %{nom} et {nom}", () => {
   assert.deepEqual(vars("Bonjour {{ name }} et {{user.first}}"), ["name", "user.first"]);

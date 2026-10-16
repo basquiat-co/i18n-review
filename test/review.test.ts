@@ -1,19 +1,18 @@
-"use strict";
-const test = require("node:test");
-const assert = require("node:assert/strict");
-const C = require("./load-core").loadCore();
+import { test } from "vitest";
+import assert from "node:assert/strict";
+import * as C from "../src/lib/core";
 
 const { hash } = C;
 const S = C.STATUS;
 
 // Lignes d'une langue cible à partir d'objets JSON, comme le fait l'application.
-function rows(source, target, entries = {}, pending) {
+function rows(source: C.JsonObject, target: C.JsonObject, entries: C.ReviewEntries = {}, pending?: Map<string, C.PendingInfo>) {
   return C.computeRows({
     sourceFlat: C.flatten(source), targetFlat: C.flatten(target), isSource: false,
     entries, pendingEntries: pending,
   });
 }
-const statusOf = list => Object.fromEntries(list.map(r => [r.id, r.status]));
+const statusOf = (list: C.Row[]) => Object.fromEntries(list.map(r => [r.id, r.status]));
 
 /* ---------- Fichier d'état ---------- */
 

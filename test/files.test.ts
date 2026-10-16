@@ -1,7 +1,6 @@
-"use strict";
-const test = require("node:test");
-const assert = require("node:assert/strict");
-const C = require("./load-core").loadCore();
+import { test } from "vitest";
+import assert from "node:assert/strict";
+import * as C from "../src/lib/core";
 
 test("hash : empreinte stable de 8 caractères hexadécimaux", () => {
   assert.equal(C.hash("Bonjour"), C.hash("Bonjour"));
@@ -47,7 +46,7 @@ test("flatten : chemins, identifiants et valeurs non textuelles", () => {
 test("toMap : indexe les entrées par identifiant", () => {
   const m = C.toMap(C.flatten({ a: { b: "c" }, d: "e" }));
   assert.deepEqual([...m.keys()], ["a.b", "d"]);
-  assert.equal(m.get("a.b").value, "c");
+  assert.equal(m.get("a.b")!.value, "c");
 });
 
 test("getAt : lit une valeur, undefined si le chemin manque", () => {

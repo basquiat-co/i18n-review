@@ -1,10 +1,9 @@
-"use strict";
-const test = require("node:test");
-const assert = require("node:assert/strict");
-const C = require("./load-core").loadCore();
+import { test } from "vitest";
+import assert from "node:assert/strict";
+import * as C from "../src/lib/core";
 
 test("annotatePlurals : regroupe les clés dont toutes les sous-clés sont des formes du pluriel", () => {
-  const rows = C.annotatePlurals([
+  const rows = C.annotatePlurals<{ segs: string[]; group?: string; form?: string }>([
     { segs: ["contracts", "zero"] }, { segs: ["contracts", "one"] }, { segs: ["contracts", "other"] },
     { segs: ["single", "one"] },                         // une seule forme : pas un pluriel
     { segs: ["mixed", "one"] }, { segs: ["mixed", "label"] }, // sous-clé qui n'est pas une forme
@@ -59,12 +58,12 @@ test("parseIcu : découpe texte et pluriel de premier niveau", () => {
 
 test("parseIcu : select, selectordinal et offset", () => {
   const parts = C.parseIcu("{g, select, male {il} other {elle}} est {n, selectordinal, one {#er} other {#e}}");
-  assert.deepEqual(parts.map(p => p.t === "text" ? p.v : p.type), ["select", " est ", "selectordinal"]);
-  assert.equal(C.parseIcu("{n, plural, offset:1 =0 {aucun} other {#}}")[0].offset, "offset:1");
+  assert.deepEqual(parts!.map(p => p.t === "text" ? p.v : p.type), ["select", " est ", "selectordinal"]);
+  assert.equal((C.parseIcu("{n, plural, offset:1 =0 {aucun} other {#}}")![0] as C.IcuArg).offset, "offset:1");
 });
 
 test("parseIcu : le contenu d'une branche reste du texte (ICU imbriqué compris)", () => {
-  const [arg] = C.parseIcu("{n, plural, one {{g, select, male {un ami} other {une amie}}} other {# amis}}");
+  const [arg] = C.parseIcu("{n, plural, one {{g, select, male {un ami} other {une amie}}} other {# amis}}") as C.IcuArg[];
   assert.equal(arg.branches[0].v, "{g, select, male {un ami} other {une amie}}");
 });
 
@@ -80,15 +79,15 @@ test("serializeIcu : réécrit un message découpé à l'identique", () => {
     "{n, plural, offset:1 =0 {aucun} other {#}}",
     "{g, select, male {il} other {elle}} est {n, selectordinal, one {#er} other {#e}}",
     "{count, plural, one {# contrat} other {# contrats}} actifs",
-  ]) assert.equal(C.serializeIcu(C.parseIcu(s)), s);
+  ]) assert.equal(C.serializeIcu(C.parseIcu(s)!), s);
 });
 
 test("serializeIcu : normalise les espaces autour des sélecteurs", () => {
-  assert.equal(C.serializeIcu(C.parseIcu("{n,plural,one{# a}other{# b}}")), "{n, plural, one {# a} other {# b}}");
+  assert.equal(C.serializeIcu(C.parseIcu("{n,plural,one{# a}other{# b}}")!), "{n, plural, one {# a} other {# b}}");
 });
 
 test("serializeIcu : applique une branche modifiée", () => {
-  const parts = C.parseIcu("{count, plural, one {# jour} other {# jours}}");
+  const parts = C.parseIcu("{count, plural, one {# jour} other {# jours}}") as C.IcuArg[];
   parts[0].branches[1].v = "# Tage";
   parts[0].branches[0].v = "# Tag";
   assert.equal(C.serializeIcu(parts), "{count, plural, one {# Tag} other {# Tage}}");
