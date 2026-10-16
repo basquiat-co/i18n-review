@@ -1,0 +1,1053 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Relecture des traductions</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Sans+Condensed:wght@600&display=swap">
+<style>
+/* Layout: barre d'outils fixe, colonne de lignes clé / source / traduction, barre d'envoi collée en bas. */
+:root {
+  --bg: #f4f5f7;
+  --panel: #ffffff;
+  --ink: #1a1e24;
+  --muted: #5d6671;
+  --line: #dde1e7;
+  --line-strong: #c3c9d1;
+  --mark: #c8232c;          /* rouge du correcteur, réservé à la marque et aux corrections */
+  --primary: #1a1e24;
+  --primary-ink: #ffffff;
+  --focus: #2b59c3;
+  --st-missing: #b42318;  --st-missing-bg: #fdecea;
+  --st-new: #1f5fbf;      --st-new-bg: #e8f0fc;
+  --st-source: #9a5b00;   --st-source-bg: #fdf3e1;
+  --st-modified: #6b3fb0; --st-modified-bg: #f1ebfb;
+  --st-pending: #4b5563;  --st-pending-bg: #eceef1;
+  --st-ok: #1d7a46;       --st-ok-bg: #e6f4ec;
+  --draft-bg: #fff8e6;
+  --font-sans: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-cond: "IBM Plex Sans Condensed", "IBM Plex Sans", system-ui, sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, monospace;
+  --radius: 6px;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #14171b; --panel: #1c2026; --ink: #e7eaee; --muted: #9aa3ad; --line: #2c323a; --line-strong: #3b434d;
+    --mark: #f0525a; --primary: #e7eaee; --primary-ink: #14171b; --focus: #7aa2ff;
+    --st-missing: #ff8a80; --st-missing-bg: #3a1d1c; --st-new: #8ab4ff; --st-new-bg: #1b2a44;
+    --st-source: #f2c06b; --st-source-bg: #3a2c12; --st-modified: #c4a6ff; --st-modified-bg: #2c2240;
+    --st-pending: #b4bcc6; --st-pending-bg: #2a2f36; --st-ok: #7fd3a1; --st-ok-bg: #173226; --draft-bg: #33290f;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #14171b; --panel: #1c2026; --ink: #e7eaee; --muted: #9aa3ad; --line: #2c323a; --line-strong: #3b434d;
+  --mark: #f0525a; --primary: #e7eaee; --primary-ink: #14171b; --focus: #7aa2ff;
+  --st-missing: #ff8a80; --st-missing-bg: #3a1d1c; --st-new: #8ab4ff; --st-new-bg: #1b2a44;
+  --st-source: #f2c06b; --st-source-bg: #3a2c12; --st-modified: #c4a6ff; --st-modified-bg: #2c2240;
+  --st-pending: #b4bcc6; --st-pending-bg: #2a2f36; --st-ok: #7fd3a1; --st-ok-bg: #173226; --draft-bg: #33290f;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; }
+body { background: var(--bg); color: var(--ink); font: 14px/1.5 var(--font-sans); }
+[hidden] { display: none !important; }
+button, input, select, textarea { font: inherit; color: inherit; }
+a { color: var(--focus); }
+:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+
+/* ---------- En-tête ---------- */
+.top { position: sticky; top: 0; z-index: 5; background: var(--panel); border-bottom: 1px solid var(--line); }
+.top-inner { max-width: 1280px; margin: 0 auto; padding: 10px 16px; display: flex; flex-wrap: wrap; align-items: center; gap: 10px 16px; }
+.brand { display: flex; align-items: center; gap: 10px; font: 600 17px/1 var(--font-cond); letter-spacing: .01em; white-space: nowrap; }
+.brand-mark { width: 22px; height: 22px; border: 2px solid var(--mark); border-radius: 4px; position: relative; flex: none; }
+.brand-mark::after { content: ""; position: absolute; left: 3px; right: 3px; top: 8px; height: 2px; background: var(--mark); transform: rotate(-12deg); }
+.pickers { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; flex: 1; min-width: 0; }
+.field { display: flex; align-items: center; gap: 6px; }
+.field label { font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: .06em; }
+select, input[type="text"], input[type="password"], input[type="search"] {
+  background: var(--panel); border: 1px solid var(--line-strong); border-radius: var(--radius); padding: 6px 8px; min-height: 34px; max-width: 100%;
+}
+.who { display: flex; align-items: center; gap: 8px; color: var(--muted); font-size: 13px; }
+.linkbtn { background: none; border: 0; padding: 0; color: var(--focus); cursor: pointer; text-decoration: underline; }
+
+/* ---------- Boutons ---------- */
+.btn { border: 1px solid var(--line-strong); background: var(--panel); border-radius: var(--radius); padding: 6px 12px; min-height: 34px; cursor: pointer; white-space: nowrap; }
+.btn:hover { border-color: var(--ink); }
+.btn-primary { background: var(--primary); color: var(--primary-ink); border-color: var(--primary); font-weight: 500; }
+.btn-primary:hover { opacity: .9; }
+.btn[disabled] { opacity: .45; cursor: not-allowed; }
+.btn-sm { min-height: 28px; padding: 3px 9px; font-size: 13px; }
+
+/* ---------- Corps ---------- */
+main { max-width: 1280px; margin: 0 auto; padding: 16px 16px 120px; display: flex; flex-direction: column; gap: 14px; }
+.notice { background: var(--panel); border: 1px solid var(--line); border-left: 3px solid var(--st-new); border-radius: var(--radius); padding: 12px 14px; display: flex; flex-wrap: wrap; gap: 10px 16px; align-items: center; justify-content: space-between; }
+.notice.error { border-left-color: var(--st-missing); }
+.notice.ok { border-left-color: var(--st-ok); }
+.notice p { margin: 0; max-width: 75ch; }
+.filters { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.chip { border: 1px solid var(--line); background: var(--panel); border-radius: 999px; padding: 4px 11px; cursor: pointer; display: inline-flex; gap: 7px; align-items: center; font-size: 13px; }
+.chip .n { font-variant-numeric: tabular-nums; color: var(--muted); }
+.chip[aria-pressed="true"] { background: var(--ink); color: var(--panel); border-color: var(--ink); }
+.chip[aria-pressed="true"] .n { color: inherit; opacity: .75; }
+.chip .dot { width: 8px; height: 8px; border-radius: 50%; }
+.toolbar { display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: center; justify-content: space-between; }
+.toolbar input[type="search"] { width: 280px; }
+.count-line { color: var(--muted); font-size: 13px; }
+
+/* ---------- Lignes ---------- */
+.rows { display: flex; flex-direction: column; background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); }
+.row { display: grid; grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.2fr) minmax(0, 1.4fr); gap: 14px; padding: 12px 14px; border-top: 1px solid var(--line); }
+.row:first-child { border-top: 0; }
+.row.single { grid-template-columns: minmax(0, 0.9fr) minmax(0, 2.6fr); }
+.row.is-draft { background: var(--draft-bg); }
+.cell { min-width: 0; display: flex; flex-direction: column; gap: 6px; }
+.key { font: 12.5px/1.45 var(--font-mono); word-break: break-all; }
+.key .pfx { color: var(--muted); }
+.meta { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.pill { font-size: 11.5px; font-weight: 500; border-radius: 4px; padding: 1px 7px; white-space: nowrap; }
+.st-missing { color: var(--st-missing); background: var(--st-missing-bg); }
+.st-new { color: var(--st-new); background: var(--st-new-bg); }
+.st-source { color: var(--st-source); background: var(--st-source-bg); }
+.st-modified { color: var(--st-modified); background: var(--st-modified-bg); }
+.st-pending { color: var(--st-pending); background: var(--st-pending-bg); }
+.st-ok { color: var(--st-ok); background: var(--st-ok-bg); }
+.st-draft { color: var(--mark); background: transparent; border: 1px solid var(--mark); }
+.warn { font-size: 12px; color: var(--st-source); }
+.lang-tag { font: 500 11px/1 var(--font-mono); color: var(--muted); text-transform: uppercase; letter-spacing: .05em; }
+.src { white-space: pre-wrap; word-break: break-word; }
+.ref { white-space: pre-wrap; word-break: break-word; color: var(--muted); font-size: 13px; border-top: 1px dashed var(--line); padding-top: 6px; }
+textarea { width: 100%; min-height: 40px; resize: vertical; border: 1px solid var(--line-strong); border-radius: var(--radius); padding: 7px 9px; background: var(--panel); line-height: 1.45; }
+.row.is-draft textarea { border-color: var(--mark); }
+.actions { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.hint { color: var(--muted); font-size: 12px; }
+.empty { padding: 40px 16px; text-align: center; color: var(--muted); }
+.more { display: flex; justify-content: center; padding: 6px 0; }
+
+/* ---------- Barre d'envoi ---------- */
+.sendbar { position: fixed; left: 0; right: 0; bottom: 0; z-index: 6; background: var(--panel); border-top: 1px solid var(--line); padding: 10px 16px calc(10px + env(safe-area-inset-bottom, 0px)); }
+.sendbar-inner { max-width: 1280px; margin: 0 auto; display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: center; justify-content: space-between; }
+.sendbar strong { font-variant-numeric: tabular-nums; }
+
+/* ---------- Panneaux ---------- */
+.overlay { position: fixed; inset: 0; z-index: 10; background: rgba(10, 12, 16, .45); display: flex; align-items: flex-start; justify-content: center; padding: 6vh 16px 16px; overflow-y: auto; }
+.sheet { background: var(--panel); border-radius: 10px; border: 1px solid var(--line); width: min(760px, 100%); padding: 20px; display: flex; flex-direction: column; gap: 14px; }
+.sheet h2 { margin: 0; font: 600 20px/1.2 var(--font-cond); }
+.sheet h3 { margin: 0; font-size: 14px; }
+.sheet .group { display: flex; flex-direction: column; gap: 6px; }
+.sheet input[type="text"], .sheet textarea { width: 100%; }
+.changes { max-height: 300px; overflow: auto; border: 1px solid var(--line); border-radius: var(--radius); }
+.changes table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.changes td, .changes th { padding: 6px 8px; border-top: 1px solid var(--line); vertical-align: top; text-align: left; word-break: break-word; }
+.changes th { font-weight: 500; color: var(--muted); border-top: 0; position: sticky; top: 0; background: var(--panel); }
+.changes .k { font: 12px var(--font-mono); }
+.changes del { color: var(--muted); }
+.changes ins { text-decoration: none; color: var(--mark); }
+.sheet-actions { display: flex; flex-wrap: wrap; gap: 8px; justify-content: flex-end; }
+
+/* ---------- Connexion ---------- */
+.login { max-width: 640px; margin: 8vh auto 0; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 24px; display: flex; flex-direction: column; gap: 14px; }
+.login h1 { margin: 0; font: 600 26px/1.15 var(--font-cond); text-wrap: balance; }
+.login p, .login ol { margin: 0; max-width: 62ch; }
+.login ol { padding-left: 20px; display: flex; flex-direction: column; gap: 4px; }
+.login code { font: 12.5px var(--font-mono); background: var(--bg); padding: 1px 5px; border-radius: 4px; }
+.login .inline { display: flex; flex-wrap: wrap; gap: 8px; }
+.login .inline input { flex: 1; min-width: 0; }
+.check { display: flex; gap: 8px; align-items: center; color: var(--muted); font-size: 13px; }
+
+@media (max-width: 860px) {
+  .row, .row.single { grid-template-columns: minmax(0, 1fr); gap: 8px; }
+  .toolbar input[type="search"] { width: 100%; }
+  .pickers { flex-basis: 100%; }
+  .field { flex: 1 1 100%; min-width: 0; }
+  .field label { flex: 0 0 7.5em; }
+  .field select { flex: 1; min-width: 0; width: 100%; }
+  .kbd-hint { display: none; }
+}
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+</style>
+</head>
+<body>
+
+<!-- ======== Connexion ======== -->
+<section class="login" id="login" hidden>
+  <div class="brand"><span class="brand-mark" aria-hidden="true"></span>Relecture des traductions</div>
+  <h1>Connecte-toi avec un jeton GitHub</h1>
+  <p>L'outil lit les fichiers de traduction directement sur GitHub et propose tes corrections sous forme de pull request. Rien ne transite par un autre serveur.</p>
+  <ol>
+    <li>Ouvre <a href="https://github.com/settings/personal-access-tokens/new" target="_blank" rel="noopener">GitHub → Fine-grained token</a>.</li>
+    <li>Propriétaire : <code>basquiat-co</code>. Dépôts : <code>basquiat-app</code>, <code>basquiat-service</code>, <code>lift-agentic-service</code>.</li>
+    <li>Permissions : <code>Contents</code> en lecture et écriture, <code>Pull requests</code> en lecture et écriture.</li>
+    <li>Copie le jeton et colle-le ici.</li>
+  </ol>
+  <form class="inline" id="login-form">
+    <input type="password" id="token-input" placeholder="github_pat_…" autocomplete="off" aria-label="Jeton GitHub">
+    <button class="btn btn-primary" type="submit">Se connecter</button>
+  </form>
+  <label class="check"><input type="checkbox" id="remember"> Se souvenir du jeton sur cet ordinateur</label>
+  <p class="hint" id="login-error" role="alert"></p>
+</section>
+
+<!-- ======== Application ======== -->
+<div id="app" hidden>
+  <header class="top">
+    <div class="top-inner">
+      <div class="brand"><span class="brand-mark" aria-hidden="true"></span>Relecture des traductions</div>
+      <div class="pickers">
+        <div class="field"><label for="set-select">Fichiers</label><select id="set-select"></select></div>
+        <div class="field"><label for="lang-select">Langue</label><select id="lang-select"></select></div>
+        <div class="field"><label for="ref-select">Afficher aussi</label><select id="ref-select"></select></div>
+      </div>
+      <div class="who"><span id="who"></span><button class="linkbtn" id="logout" type="button">Se déconnecter</button></div>
+    </div>
+  </header>
+
+  <main>
+    <div id="messages"></div>
+    <div class="notice" id="init-notice" hidden>
+      <p>Ces fichiers n'ont pas encore d'état de relecture. Si tout l'existant a déjà été relu (par exemple dans Lokalise), marque-le comme relu : seules les nouvelles clés apparaîtront ensuite.</p>
+      <button class="btn btn-primary" type="button" id="init-btn">Marquer l'existant comme relu</button>
+    </div>
+    <div class="toolbar">
+      <div class="filters" id="filters" role="group" aria-label="Filtrer par statut"></div>
+      <input type="search" id="search" placeholder="Chercher une clé ou un texte" aria-label="Chercher">
+    </div>
+    <div class="toolbar">
+      <span class="count-line" id="count-line"></span>
+      <div class="actions">
+        <button class="btn btn-sm" type="button" id="validate-visible">Valider les lignes affichées</button>
+        <button class="btn btn-sm" type="button" id="reload">Recharger depuis GitHub</button>
+      </div>
+    </div>
+    <div class="rows" id="rows"></div>
+    <div class="more" id="more" hidden><button class="btn" type="button" id="more-btn">Afficher la suite</button></div>
+  </main>
+
+  <div class="sendbar">
+    <div class="sendbar-inner">
+      <span id="send-summary">Aucune modification en attente.</span>
+      <div class="actions">
+        <button class="btn" type="button" id="discard" disabled>Tout annuler</button>
+        <button class="btn btn-primary" type="button" id="open-pr" disabled>Préparer la pull request</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ======== Panneau PR ======== -->
+<div class="overlay" id="pr-overlay" hidden>
+  <div class="sheet" role="dialog" aria-modal="true" aria-labelledby="pr-title-h">
+    <h2 id="pr-title-h">Créer la pull request</h2>
+    <div id="pr-body"></div>
+    <div class="sheet-actions">
+      <button class="btn" type="button" id="pr-cancel">Fermer</button>
+      <button class="btn btn-primary" type="button" id="pr-submit">Créer la pull request</button>
+    </div>
+  </div>
+</div>
+
+<script>
+/* Moteur de l'outil de relecture i18n : fonctions pures, sans accès réseau ni DOM.
+   Utilisable dans le navigateur (window.I18nCore) et dans Node (module.exports). */
+(function (root) {
+  "use strict";
+
+  // Empreinte courte et stable d'une chaîne (cyrb53 tronqué à 8 caractères hexadécimaux).
+  function hash(str) {
+    let h1 = 0xdeadbeef, h2 = 0x41c6ce57;
+    for (let i = 0; i < str.length; i++) {
+      const ch = str.charCodeAt(i);
+      h1 = Math.imul(h1 ^ ch, 2654435761);
+      h2 = Math.imul(h2 ^ ch, 1597334677);
+    }
+    h1 = Math.imul(h1 ^ (h1 >>> 16), 2246822507) ^ Math.imul(h2 ^ (h2 >>> 13), 3266489909);
+    h2 = Math.imul(h2 ^ (h2 >>> 16), 2246822507) ^ Math.imul(h1 ^ (h1 >>> 13), 3266489909);
+    const n = 4294967296 * (2097151 & h2) + (h1 >>> 0);
+    return n.toString(16).padStart(14, "0").slice(-8);
+  }
+
+  // Format d'un fichier JSON : indentation et retour à la ligne final, pour réécrire à l'identique.
+  function detectFormat(raw) {
+    const m = raw.match(/\n([ \t]+)"/);
+    return { indent: m ? m[1] : "  ", trailingNewline: raw.endsWith("\n") };
+  }
+
+  function parseFile(raw) {
+    return { obj: JSON.parse(raw), fmt: detectFormat(raw) };
+  }
+
+  function serializeFile(obj, fmt) {
+    return JSON.stringify(obj, null, fmt.indent) + (fmt.trailingNewline ? "\n" : "");
+  }
+
+  // Une clé est un chemin de segments ; son identifiant texte joint les segments par un point.
+  // (Les clés plates qui contiennent déjà des points restent un seul segment.)
+  function keyId(segs) { return segs.join("."); }
+
+  function isPlainObject(v) { return v !== null && typeof v === "object" && !Array.isArray(v); }
+
+  function flatten(obj) {
+    const out = [];
+    (function walk(o, segs) {
+      for (const k of Object.keys(o)) {
+        const v = o[k];
+        const s = segs.concat(k);
+        if (isPlainObject(v)) walk(v, s);
+        else out.push({ segs: s, id: keyId(s), value: typeof v === "string" ? v : JSON.stringify(v) });
+      }
+    })(obj, []);
+    return out;
+  }
+
+  function toMap(flat) {
+    const m = new Map();
+    for (const e of flat) m.set(e.id, e);
+    return m;
+  }
+
+  function getAt(obj, segs) {
+    let o = obj;
+    for (const s of segs) {
+      if (!isPlainObject(o) || !(s in o)) return undefined;
+      o = o[s];
+    }
+    return o;
+  }
+
+  // Réordonne les clés d'un objet pour suivre l'ordre de la source ; les clés absentes de la source restent à la fin.
+  function reorderLike(level, sourceLevel) {
+    if (!isPlainObject(sourceLevel)) return;
+    const entries = Object.keys(level).map(k => [k, level[k]]);
+    const have = new Map(entries);
+    const ordered = [];
+    for (const k of Object.keys(sourceLevel)) if (have.has(k)) { ordered.push([k, have.get(k)]); have.delete(k); }
+    for (const [k, v] of have) ordered.push([k, v]);
+    for (const [k] of entries) delete level[k];
+    for (const [k, v] of ordered) level[k] = v;
+  }
+
+  // Écrit une valeur ; si la clé (ou un parent) manque dans la langue cible, elle est insérée à sa place selon la source.
+  function setAt(obj, segs, value, sourceObj) {
+    let level = obj, srcLevel = sourceObj;
+    for (let i = 0; i < segs.length; i++) {
+      const s = segs[i];
+      const last = i === segs.length - 1;
+      const existed = s in level;
+      if (last) level[s] = value;
+      else if (!existed || !isPlainObject(level[s])) level[s] = {};
+      if (!existed) reorderLike(level, srcLevel);
+      level = level[s];
+      srcLevel = isPlainObject(srcLevel) ? srcLevel[s] : undefined;
+    }
+  }
+
+  // Variables d'interpolation : {name}, {{name}}, et la variable d'un message ICU {count, plural, ...}.
+  function placeholderVars(str) {
+    const vars = new Set();
+    const re = /\{\{?\s*([a-z_][A-Za-z0-9_]*)\s*(?:,|\}\}?)/g;
+    let m;
+    while ((m = re.exec(str))) vars.add(m[1]);
+    return vars;
+  }
+
+  function missingPlaceholders(source, target) {
+    if (!target) return [];
+    const t = placeholderVars(target);
+    return [...placeholderVars(source)].filter(v => !t.has(v));
+  }
+
+  // ---------- Fichier d'état de relecture (.i18n-review.json) ----------
+  // { "version": 1, "sets": { "<jeu>": { "<langue>": { "<clé>": "<empreinte source> <empreinte traduction>" } } } }
+  // Pour la langue source, l'entrée ne contient que l'empreinte du texte.
+
+  function emptyReview() { return { version: 1, sets: {} }; }
+
+  function parseReview(raw) {
+    if (!raw) return emptyReview();
+    const r = JSON.parse(raw);
+    if (!r || typeof r !== "object" || !r.sets) return emptyReview();
+    return r;
+  }
+
+  function sortDeep(v) {
+    if (!isPlainObject(v)) return v;
+    const o = {};
+    for (const k of Object.keys(v).sort()) o[k] = sortDeep(v[k]);
+    return o;
+  }
+
+  function serializeReview(review) {
+    return JSON.stringify({ version: 1, sets: sortDeep(review.sets) }, null, 2) + "\n";
+  }
+
+  function reviewEntries(review, setId, lang) {
+    return (review.sets[setId] && review.sets[setId][lang]) || {};
+  }
+
+  function entryFor(isSource, sourceValue, targetValue) {
+    return isSource ? hash(targetValue) : hash(sourceValue) + " " + hash(targetValue);
+  }
+
+  // ---------- Statuts ----------
+  const STATUS = {
+    missing: "missing",   // pas de traduction (clé absente ou vide)
+    fresh: "new",         // jamais relue
+    source: "source",     // le texte source a changé depuis la relecture
+    modified: "modified", // la traduction a été modifiée en dehors de la relecture
+    pending: "pending",   // validée dans une PR ouverte, pas encore fusionnée
+    ok: "ok",             // relue et inchangée
+  };
+
+  /**
+   * Construit les lignes à afficher pour une langue.
+   * sourceFlat / targetFlat : sorties de flatten() ; entries : entrées de relecture de cette langue ;
+   * pendingEntries : Map clé -> { pr, entry } venant des PR ouvertes.
+   */
+  function computeRows({ sourceFlat, targetFlat, isSource, entries, pendingEntries }) {
+    const target = isSource ? null : toMap(targetFlat);
+    const rows = [];
+    for (const src of sourceFlat) {
+      const tgt = isSource ? src : target.get(src.id);
+      const value = tgt ? tgt.value : undefined;
+      const entry = entries[src.id];
+      let status;
+      if (value === undefined || (value === "" && src.value !== "")) status = STATUS.missing;
+      else if (!entry) status = STATUS.fresh;
+      else {
+        const [a, b] = entry.split(" ");
+        const trHash = isSource ? a : b;
+        if (!isSource && a !== hash(src.value)) status = STATUS.source;
+        else if (trHash !== hash(value)) status = STATUS.modified;
+        else status = STATUS.ok;
+      }
+      let pending = null;
+      if (status !== STATUS.ok && pendingEntries && pendingEntries.has(src.id)) {
+        pending = pendingEntries.get(src.id);
+        status = STATUS.pending;
+      }
+      rows.push({
+        id: src.id, segs: src.segs, source: src.value,
+        value: value === undefined ? "" : value, exists: value !== undefined,
+        status, pending,
+      });
+    }
+    return rows;
+  }
+
+  function countStatuses(rows) {
+    const c = { missing: 0, new: 0, source: 0, modified: 0, pending: 0, ok: 0 };
+    for (const r of rows) c[r.status]++;
+    c.todo = c.missing + c.new + c.source + c.modified;
+    c.total = rows.length;
+    return c;
+  }
+
+  // ---------- Application d'une relecture ----------
+
+  /**
+   * Applique les modifications sur la version la plus récente des fichiers.
+   * edits : [{ segs, value }] ; renvoie le nouveau contenu ou null si rien n'a changé.
+   */
+  function applyEdits(targetRaw, sourceObj, edits) {
+    if (!edits.length) return null;
+    const { obj, fmt } = parseFile(targetRaw);
+    let changed = false;
+    for (const e of edits) {
+      if (getAt(obj, e.segs) === e.value) continue;
+      setAt(obj, e.segs, e.value, sourceObj);
+      changed = true;
+    }
+    return changed ? serializeFile(obj, fmt) : null;
+  }
+
+  /**
+   * Met à jour l'état de relecture d'une langue.
+   * validations : [{ id, source, value }] (texte source vu par le traducteur, valeur finale) ;
+   * liveIds : identifiants des clés encore présentes dans la source (les autres entrées sont supprimées).
+   */
+  function updateReview(review, setId, lang, isSource, validations, liveIds) {
+    const next = JSON.parse(JSON.stringify(review));
+    next.sets[setId] = next.sets[setId] || {};
+    const cur = next.sets[setId][lang] || {};
+    const out = {};
+    for (const k of Object.keys(cur)) if (!liveIds || liveIds.has(k)) out[k] = cur[k];
+    for (const v of validations) out[v.id] = entryFor(isSource, v.source, v.value);
+    next.sets[setId][lang] = out;
+    return next;
+  }
+
+  // Considère tout l'existant d'un jeu comme relu (point de départ après Lokalise).
+  function initReview(review, setId, sourceLang, langsFlat) {
+    let next = review;
+    const sourceFlat = langsFlat[sourceLang];
+    const liveIds = new Set(sourceFlat.map(e => e.id));
+    for (const lang of Object.keys(langsFlat)) {
+      const isSource = lang === sourceLang;
+      const tmap = toMap(langsFlat[lang]);
+      const validations = [];
+      for (const src of sourceFlat) {
+        const t = isSource ? src : tmap.get(src.id);
+        if (!t || (t.value === "" && src.value !== "")) continue;
+        validations.push({ id: src.id, source: src.value, value: t.value });
+      }
+      next = updateReview(next, setId, lang, isSource, validations, liveIds);
+    }
+    return next;
+  }
+
+  const api = {
+    hash, detectFormat, parseFile, serializeFile, flatten, toMap, getAt, setAt, keyId,
+    placeholderVars, missingPlaceholders, emptyReview, parseReview, serializeReview,
+    reviewEntries, computeRows, countStatuses, applyEdits, updateReview, initReview, STATUS,
+  };
+  if (typeof module !== "undefined" && module.exports) module.exports = api;
+  else root.I18nCore = api;
+})(typeof window !== "undefined" ? window : globalThis);
+</script>
+
+<script>
+(function () {
+"use strict";
+const C = window.I18nCore;
+
+/* ================= Configuration des fichiers ================= */
+const SETS = [
+  { id: "app", repo: "basquiat-co/basquiat-app", label: "Application mobile (app.json)", path: "app/i18n/{lang}/app.json", langs: ["fr", "de"], source: "fr" },
+  { id: "app-expo", repo: "basquiat-co/basquiat-app", label: "Application mobile (expo.json)", path: "app/i18n/{lang}/expo.json", langs: ["fr", "de"], source: "fr" },
+  { id: "service", repo: "basquiat-co/basquiat-service", label: "Service (messages)", path: "basquiat_service/i18n/lang/{lang}.json", langs: ["fr", "de"], source: "fr" },
+  { id: "salary-simulator", repo: "basquiat-co/basquiat-service", label: "Simulateur de salaire", path: "basquiat_service/salary/static/salary_simulator/i18n/{lang}.json", langs: ["fr", "en", "de", "it", "pt", "ar", "cn"], source: "fr" },
+  { id: "bff", repo: "basquiat-co/lift-agentic-service", label: "Lift (BFF)", path: "service_bff/src/locales/{lang}.json", langs: ["fr", "en", "de"], source: "fr" },
+];
+const REVIEW_FILE = ".i18n-review.json";
+const BRANCH_PREFIX = "i18n-review/";
+const API = window.I18N_API_BASE || "https://api.github.com";
+const PAGE = 50;
+const LANG_NAMES = { fr: "français", de: "allemand", en: "anglais", it: "italien", pt: "portugais", ar: "arabe", cn: "chinois" };
+const STATUS_INFO = [
+  { key: "todo", label: "À relire", dot: null },
+  { key: "missing", label: "Manquantes", dot: "--st-missing" },
+  { key: "new", label: "Nouvelles", dot: "--st-new" },
+  { key: "source", label: "Source modifiée", dot: "--st-source" },
+  { key: "modified", label: "Modifiées hors relecture", dot: "--st-modified" },
+  { key: "pending", label: "En attente de fusion", dot: "--st-pending" },
+  { key: "ok", label: "Relues", dot: "--st-ok" },
+  { key: "all", label: "Toutes", dot: null },
+];
+const PILL = { missing: "Manquante", new: "Nouvelle", source: "Source modifiée", modified: "Modifiée hors relecture", pending: "En attente", ok: "Relue" };
+
+/* ================= Stockage local (confort uniquement) ================= */
+function store(kind) { try { return kind === "local" ? window.localStorage : window.sessionStorage; } catch (e) { return null; } }
+function sget(k, kind) { try { const s = store(kind); return s ? s.getItem(k) : null; } catch (e) { return null; } }
+function sset(k, v, kind) { try { const s = store(kind); if (s) v === null ? s.removeItem(k) : s.setItem(k, v); } catch (e) {} }
+
+/* ================= État ================= */
+const state = {
+  token: null, user: null,
+  setId: sget("i18n-set", "local") || SETS[0].id,
+  lang: null, ref: "", filter: "todo", search: "", shown: PAGE,
+  data: {},      // setId -> { sha, branch, flat:{lang:[]}, obj:{lang:{}}, review, pending:{lang:Map} }
+  repoInfo: {},  // repo -> { branch }
+  drafts: loadDrafts(), // "set|lang|id" -> { set, lang, id, segs, value, original, source, edited }
+  loading: false,
+};
+function loadDrafts() { try { return JSON.parse(sget("i18n-drafts", "local") || "{}"); } catch (e) { return {}; } }
+function saveDrafts() { sset("i18n-drafts", JSON.stringify(state.drafts), "local"); }
+const setById = id => SETS.find(s => s.id === id) || SETS[0];
+const draftKey = (set, lang, id) => set + "|" + lang + "|" + id;
+
+/* ================= GitHub ================= */
+class GhError extends Error { constructor(status, msg) { super(msg); this.status = status; } }
+async function gh(path, opts = {}) {
+  const headers = { "Authorization": "Bearer " + state.token, "Accept":opts.raw ? "application/vnd.github.raw+json" : "application/vnd.github+json" };
+  if (opts.body) headers["Content-Type"] = "application/json";
+  let res;
+  try {
+    res = await fetch(API + path, { method: opts.method || "GET", headers, body: opts.body ? JSON.stringify(opts.body) : undefined, cache: "no-store" });
+  } catch (e) {
+    const embedded = /claude\.ai$|claudeusercontent\.com$|claude\.site$/.test(location.hostname) || window.top !== window.self;
+    throw new GhError(0, embedded
+      ? "Cette page ne peut pas joindre GitHub depuis claude.ai, qui bloque ces appels. Télécharge le fichier relecture-traductions.html et ouvre-le directement dans ton navigateur."
+      : "GitHub ne répond pas. Vérifie ta connexion internet, ou qu'aucun pare-feu ou extension ne bloque api.github.com.");
+  }
+  if (!res.ok) {
+    let detail = "";
+    try { detail = (await res.json()).message || ""; } catch (e) {}
+    throw new GhError(res.status, detail || res.statusText);
+  }
+  return opts.raw ? res.text() : res.status === 204 ? null : res.json();
+}
+const encPath = p => p.split("/").map(encodeURIComponent).join("/");
+async function getFile(repo, path, ref) {
+  try { return await gh(`/repos/${repo}/contents/${encPath(path)}?ref=${encodeURIComponent(ref)}`, { raw: true }); }
+  catch (e) { if (e.status === 404) return null; throw e; }
+}
+async function repoHead(repo) {
+  if (!state.repoInfo[repo]) {
+    const r = await gh(`/repos/${repo}`);
+    state.repoInfo[repo] = { branch: r.default_branch };
+  }
+  const branch = state.repoInfo[repo].branch;
+  const ref = await gh(`/repos/${repo}/git/ref/heads/${encodeURIComponent(branch)}`);
+  return { branch, sha: ref.object.sha };
+}
+function explain(e, repo) {
+  if (e.status === 401) return "Le jeton GitHub est refusé (expiré ou révoqué). Reconnecte-toi avec un nouveau jeton.";
+  if (e.status === 403 || e.status === 404) return `Le jeton n'a pas accès à ${repo || "ce dépôt"}. Vérifie qu'il inclut ce dépôt avec les droits Contents et Pull requests.`;
+  if (e.status === 409 || e.status === 422) return "GitHub a refusé l'opération : " + e.message;
+  return e.message || String(e);
+}
+
+/* ================= Chargement d'un jeu de fichiers ================= */
+async function loadSet(setId, force) {
+  const set = setById(setId);
+  if (state.data[setId] && !force) return state.data[setId];
+  const head = await repoHead(set.repo);
+  const raws = await Promise.all(set.langs.map(l => getFile(set.repo, set.path.replace("{lang}", l), head.sha)));
+  const flat = {}, obj = {};
+  set.langs.forEach((l, i) => {
+    const raw = raws[i] === null ? "{}" : raws[i];
+    obj[l] = JSON.parse(raw); flat[l] = C.flatten(obj[l]);
+  });
+  const reviewRaw = await getFile(set.repo, REVIEW_FILE, head.sha);
+  const review = C.parseReview(reviewRaw);
+  const pending = await loadPending(set, review);
+  state.data[setId] = { sha: head.sha, branch: head.branch, flat, obj, review, pending };
+  return state.data[setId];
+}
+
+// Clés déjà validées dans des pull requests ouvertes par l'outil.
+async function loadPending(set, baseReview) {
+  const out = {};
+  set.langs.forEach(l => out[l] = new Map());
+  let prs = [];
+  try { prs = await gh(`/repos/${set.repo}/pulls?state=open&per_page=50`); } catch (e) { return out; }
+  prs = prs.filter(p => p.head && p.head.ref && p.head.ref.startsWith(BRANCH_PREFIX) && p.head.repo && p.head.repo.full_name === set.repo).slice(0, 10);
+  await Promise.all(prs.map(async p => {
+    const raw = await getFile(set.repo, REVIEW_FILE, p.head.sha).catch(() => null);
+    if (!raw) return;
+    let r; try { r = C.parseReview(raw); } catch (e) { return; }
+    for (const l of set.langs) {
+      const base = C.reviewEntries(baseReview, set.id, l), next = C.reviewEntries(r, set.id, l);
+      for (const k of Object.keys(next)) if (next[k] !== base[k]) out[l].set(k, { number: p.number, url: p.html_url });
+    }
+  }));
+  return out;
+}
+
+/* ================= Lignes ================= */
+function currentRows() {
+  const set = setById(state.setId), d = state.data[state.setId];
+  if (!d) return [];
+  const isSource = state.lang === set.source;
+  const rows = C.computeRows({
+    sourceFlat: d.flat[set.source], targetFlat: d.flat[state.lang], isSource,
+    entries: C.reviewEntries(d.review, set.id, state.lang), pendingEntries: d.pending[state.lang],
+  });
+  const refMap = state.ref ? C.toMap(d.flat[state.ref]) : null;
+  for (const r of rows) {
+    r.ref = refMap && refMap.get(r.id) ? refMap.get(r.id).value : null;
+    r.draft = state.drafts[draftKey(set.id, state.lang, r.id)] || null;
+  }
+  return rows;
+}
+function matchesFilter(r) {
+  if (state.filter === "all") return true;
+  if (state.filter === "todo") return ["missing", "new", "source", "modified"].includes(r.status) || !!r.draft;
+  return r.status === state.filter;
+}
+function matchesSearch(r) {
+  if (!state.search) return true;
+  const q = state.search.toLowerCase();
+  return r.id.toLowerCase().includes(q) || r.source.toLowerCase().includes(q) || (r.value || "").toLowerCase().includes(q) || (r.draft && r.draft.value.toLowerCase().includes(q));
+}
+
+/* ================= Rendu ================= */
+const $ = id => document.getElementById(id);
+function el(tag, attrs, ...kids) {
+  const n = document.createElement(tag);
+  if (attrs) for (const [k, v] of Object.entries(attrs)) {
+    if (v === null || v === undefined || v === false) continue;
+    if (k === "class") n.className = v; else if (k === "text") n.textContent = v;
+    else if (k.startsWith("on")) n.addEventListener(k.slice(2), v); else n.setAttribute(k, v === true ? "" : v);
+  }
+  for (const k of kids) if (k !== null && k !== undefined && k !== false) n.append(k);
+  return n;
+}
+
+function renderPickers() {
+  const set = setById(state.setId);
+  $("set-select").replaceChildren(...SETS.map(s => el("option", { value: s.id, selected: s.id === set.id, text: s.label })));
+  if (!set.langs.includes(state.lang)) state.lang = set.langs.find(l => l !== set.source) || set.source;
+  $("lang-select").replaceChildren(...set.langs.map(l => el("option", { value: l, selected: l === state.lang, text: (LANG_NAMES[l] || l) + (l === set.source ? " (source)" : "") })));
+  const refs = set.langs.filter(l => l !== set.source && l !== state.lang);
+  if (!refs.includes(state.ref)) state.ref = "";
+  $("ref-select").replaceChildren(el("option", { value: "", text: "—" }), ...refs.map(l => el("option", { value: l, selected: l === state.ref, text: LANG_NAMES[l] || l })));
+  $("ref-select").disabled = !refs.length;
+}
+
+// Le rendu remplace les lignes ; retirer un champ actif déclenche son événement « change »,
+// qui ne doit pas relancer un rendu au milieu de celui-ci.
+let rendering = false, renderQueued = false;
+function render() {
+  if (rendering) { if (!renderQueued) { renderQueued = true; setTimeout(() => { renderQueued = false; render(); }, 0); } return; }
+  rendering = true;
+  try { renderInner(); } finally { rendering = false; }
+}
+function renderInner() {
+  renderPickers();
+  const set = setById(state.setId), d = state.data[state.setId];
+  const rowsEl = $("rows");
+  if (!d) {
+    rowsEl.replaceChildren(el("div", { class: "empty", text: state.loading ? "Chargement des fichiers depuis GitHub…" : "Aucune donnée chargée." }));
+    $("filters").replaceChildren(); $("count-line").textContent = ""; $("more").hidden = true; $("init-notice").hidden = true;
+    renderSendbar(); return;
+  }
+  const all = currentRows();
+  renderFilters(all);
+
+  const hasReview = Object.keys(C.reviewEntries(d.review, set.id, set.source)).length > 0;
+  $("init-notice").hidden = hasReview;
+
+  const visible = all.filter(r => matchesFilter(r) && matchesSearch(r));
+  const isSource = state.lang === set.source;
+  $("count-line").textContent = `${visible.length} clé${visible.length > 1 ? "s" : ""} · ${set.repo.split("/")[1]} · ${set.path.replace("{lang}", state.lang)}`;
+  $("validate-visible").disabled = !visible.some(r => r.status !== "ok" && !r.draft && r.value);
+
+  if (!visible.length) {
+    const msg = state.filter === "todo" && !state.search ? "Tout est relu pour cette langue. Rien à faire ici." : "Aucune clé ne correspond.";
+    rowsEl.replaceChildren(el("div", { class: "empty", text: msg }));
+  } else {
+    rowsEl.replaceChildren(...visible.slice(0, state.shown).map(r => renderRow(r, set, isSource)));
+  }
+  $("more").hidden = visible.length <= state.shown;
+  $("more-btn").textContent = `Afficher la suite (${visible.length - state.shown} restantes)`;
+  renderSendbar();
+}
+
+function renderFilters(all) {
+  const counts = C.countStatuses(all);
+  counts.all = all.length;
+  counts.todo += all.filter(r => r.draft && !["missing", "new", "source", "modified"].includes(r.status)).length;
+  $("filters").replaceChildren(...STATUS_INFO.map(s => el("button", {
+    class: "chip", type: "button", "aria-pressed": String(state.filter === s.key),
+    onclick: () => { state.filter = s.key; state.shown = PAGE; render(); },
+  }, s.dot ? el("span", { class: "dot", style: `background: var(${s.dot})`, "aria-hidden": "true" }) : null, s.label, el("span", { class: "n", text: String(counts[s.key] || 0) }))));
+}
+
+// Après une saisie : redessine seulement la ligne concernée, les compteurs et la barre d'envoi.
+let softUpdating = false;
+function softUpdate(id) {
+  if (softUpdating) return; // retirer le champ actif relance « change » : déjà pris en compte
+  softUpdating = true;
+  try {
+    const set = setById(state.setId);
+    const all = currentRows();
+    renderFilters(all);
+    renderSendbar();
+    const r = all.find(x => x.id === id);
+    const old = [...document.querySelectorAll("#rows .row")].find(n => n.dataset.id === id);
+    if (r && old && old.isConnected) old.replaceWith(renderRow(r, set, state.lang === set.source));
+  } finally { softUpdating = false; }
+}
+
+function renderKey(r) {
+  const node = el("div", { class: "key" });
+  if (r.segs.length > 1) node.append(el("span", { class: "pfx", text: r.segs.slice(0, -1).join(".") + "." }), r.segs[r.segs.length - 1]);
+  else node.textContent = r.id;
+  return node;
+}
+
+function renderRow(r, set, isSource) {
+  const current = r.draft ? r.draft.value : r.value;
+  const meta = el("div", { class: "meta" },
+    el("span", { class: "pill st-" + r.status, text: PILL[r.status] }),
+    r.draft ? el("span", { class: "pill st-draft", text: r.draft.edited ? "Corrigée" : "Validée" }) : null,
+    r.pending ? el("a", { href: r.pending.url, target: "_blank", rel: "noopener", class: "hint", text: "PR #" + r.pending.number }) : null,
+  );
+  const missingVars = isSource ? [] : C.missingPlaceholders(r.source, current);
+  const keyCell = el("div", { class: "cell" }, renderKey(r), meta,
+    missingVars.length ? el("div", { class: "warn", text: "Variable absente : " + missingVars.map(v => "{" + v + "}").join(", ") }) : null);
+
+  const ta = el("textarea", { id: "t-" + set.id + "-" + state.lang + "-" + r.id, dir: "auto", rows: String(Math.min(8, Math.max(1, Math.ceil(current.length / 60)))), "aria-label": "Traduction " + (LANG_NAMES[state.lang] || state.lang) + " de " + r.id });
+  ta.value = current;
+  ta.addEventListener("change", () => onEdit(r, ta.value, false, true));
+  ta.addEventListener("keydown", e => {
+    if ((e.metaKey || e.ctrlKey) && e.key === "Enter") { e.preventDefault(); onEdit(r, ta.value, true); focusNext(ta); }
+  });
+  const canValidate = !r.draft && r.status !== "ok" && current !== "";
+  const actions = el("div", { class: "actions" },
+    canValidate ? el("button", { class: "btn btn-sm", type: "button", onclick: () => onEdit(r, ta.value, true), text: "Valider" }) : null,
+    r.draft ? el("button", { class: "btn btn-sm", type: "button", onclick: () => undo(r), text: "Annuler" }) : null,
+    el("span", { class: "hint kbd-hint", text: "⌘/Ctrl + Entrée : valider et passer à la suivante" }),
+  );
+  const editCell = el("div", { class: "cell" }, el("span", { class: "lang-tag", text: state.lang }), ta, actions);
+
+  if (isSource) return el("div", { class: "row single" + (r.draft ? " is-draft" : ""), "data-id": r.id }, keyCell, editCell);
+  const srcCell = el("div", { class: "cell" }, el("span", { class: "lang-tag", text: set.source }), el("div", { class: "src", dir: "auto", text: r.source }),
+    r.ref !== null ? el("div", { class: "ref", dir: "auto" }, el("span", { class: "lang-tag", text: state.ref + " " }), r.ref) : null);
+  return el("div", { class: "row" + (r.draft ? " is-draft" : ""), "data-id": r.id }, keyCell, srcCell, editCell);
+}
+
+function focusNext(ta) {
+  const rows = [...document.querySelectorAll("#rows textarea")];
+  const i = rows.findIndex(t => t.id === ta.id);
+  const next = rows[i + 1] || document.getElementById(ta.id);
+  if (next) { next.focus(); next.setSelectionRange(next.value.length, next.value.length); }
+}
+
+/* ================= Modifications ================= */
+function onEdit(r, value, explicit, soft) {
+  const set = setById(state.setId), k = draftKey(set.id, state.lang, r.id);
+  const existing = state.drafts[k];
+  const make = edited => ({ set: set.id, lang: state.lang, id: r.id, segs: r.segs, value, original: r.value, exists: r.exists, source: r.source, edited });
+  if (value === "" && r.source !== "") {
+    delete state.drafts[k];                       // une traduction vide ne peut pas être validée
+  } else if (value !== r.value) {
+    state.drafts[k] = make(true);                 // correction
+  } else if (explicit && r.status !== "ok") {
+    state.drafts[k] = make(false);                // validation sans changement
+  } else if (existing && existing.edited) {
+    delete state.drafts[k];                       // retour au texte d'origine
+  } else {
+    return;
+  }
+  saveDrafts();
+  if (soft && !rendering) softUpdate(r.id); else render();
+}
+function undo(r) {
+  delete state.drafts[draftKey(state.setId, state.lang, r.id)];
+  saveDrafts(); render();
+}
+function validateVisible() {
+  const set = setById(state.setId);
+  for (const r of currentRows().filter(r => matchesFilter(r) && matchesSearch(r))) {
+    if (r.draft || r.status === "ok" || !r.value) continue;
+    state.drafts[draftKey(set.id, state.lang, r.id)] = { set: set.id, lang: state.lang, id: r.id, segs: r.segs, value: r.value, original: r.value, exists: r.exists, source: r.source, edited: false };
+  }
+  saveDrafts(); render();
+}
+
+function draftList() { return Object.values(state.drafts); }
+function renderSendbar() {
+  const list = draftList();
+  const edited = list.filter(d => d.edited).length, validated = list.length - edited;
+  const repos = new Set(list.map(d => setById(d.set).repo));
+  $("send-summary").replaceChildren(list.length
+    ? el("span", null, el("strong", { text: String(edited) }), ` correction${edited > 1 ? "s" : ""} · `, el("strong", { text: String(validated) }), ` validation${validated > 1 ? "s" : ""} sans changement` + (repos.size > 1 ? ` · ${repos.size} dépôts` : ""))
+    : "Aucune modification en attente.");
+  $("open-pr").disabled = !list.length;
+  $("discard").disabled = !list.length;
+}
+
+/* ================= Messages ================= */
+function showMessage(kind, text, link) {
+  const box = el("div", { class: "notice " + kind, role: kind === "error" ? "alert" : "status" },
+    el("p", null, text, link ? el("span", null, " ", el("a", { href: link.href, target: "_blank", rel: "noopener", text: link.text })) : null),
+    el("button", { class: "btn btn-sm", type: "button", text: "Fermer", onclick: () => box.remove() }));
+  $("messages").append(box);
+}
+
+/* ================= Création de la pull request ================= */
+let prPlan = null; // { mode: "drafts" | "init", setId? }
+
+function openPrSheet(mode, setId) {
+  prPlan = { mode, setId };
+  const body = $("pr-body");
+  const now = new Date();
+  if (mode === "init") {
+    const set = setById(setId);
+    body.replaceChildren(
+      el("p", { text: `La pull request ajoutera ${REVIEW_FILE} dans ${set.repo} et marquera comme relues toutes les clés actuelles de « ${set.label} » (${set.langs.map(l => LANG_NAMES[l]).join(", ")}). Les clés sans traduction restent à faire.` }),
+      el("div", { class: "group" }, el("label", { for: "pr-title", text: "Titre" }), el("input", { type: "text", id: "pr-title", value: `i18n : état de relecture initial pour ${set.label}` })),
+    );
+  } else {
+    const list = draftList();
+    const byRepo = {};
+    for (const d of list) (byRepo[setById(d.set).repo] = byRepo[setById(d.set).repo] || []).push(d);
+    const langs = [...new Set(list.map(d => LANG_NAMES[d.lang] || d.lang))].join(", ");
+    const edited = list.filter(d => d.edited);
+    body.replaceChildren(
+      el("p", { text: Object.keys(byRepo).length > 1 ? `Une pull request sera créée dans chacun de ces dépôts : ${Object.keys(byRepo).join(", ")}.` : `La pull request sera créée dans ${Object.keys(byRepo)[0]}.` }),
+      el("div", { class: "group" }, el("label", { for: "pr-title", text: "Titre" }), el("input", { type: "text", id: "pr-title", value: `i18n : relecture ${langs} du ${now.toLocaleDateString("fr-CH")}` })),
+      el("div", { class: "group" }, el("label", { for: "pr-note", text: "Note pour les développeurs (facultatif)" }), el("textarea", { id: "pr-note", rows: "2" })),
+      el("div", { class: "group" }, el("h3", { text: `${edited.length} correction${edited.length > 1 ? "s" : ""}, ${list.length - edited.length} validation${list.length - edited.length > 1 ? "s" : ""} sans changement` }),
+        edited.length ? el("div", { class: "changes" }, el("table", null,
+          el("thead", null, el("tr", null, el("th", { text: "Clé" }), el("th", { text: "Langue" }), el("th", { text: "Avant → après" }))),
+          el("tbody", null, ...edited.map(d => el("tr", null, el("td", { class: "k", text: d.id }), el("td", { text: d.lang }),
+            el("td", null, d.original ? el("del", { text: d.original }) : el("em", { text: "(vide)" }), el("br"), el("ins", { text: d.value }))))))) : null),
+    );
+  }
+  $("pr-submit").disabled = false; $("pr-submit").textContent = "Créer la pull request";
+  $("pr-overlay").hidden = false;
+  $("pr-title").focus();
+}
+
+async function submitPr() {
+  const title = ($("pr-title").value || "").trim() || "i18n : relecture";
+  const note = $("pr-note") ? $("pr-note").value.trim() : "";
+  $("pr-submit").disabled = true; $("pr-submit").textContent = "Création en cours…";
+  const results = [];
+  try {
+    if (prPlan.mode === "init") {
+      results.push(await createPr(setById(prPlan.setId).repo, title, note, { initSet: prPlan.setId }));
+    } else {
+      const repos = [...new Set(draftList().map(d => setById(d.set).repo))];
+      for (const repo of repos) {
+        const drafts = draftList().filter(d => setById(d.set).repo === repo);
+        const res = await createPr(repo, title, note, { drafts });
+        results.push(res);
+        for (const d of drafts) delete state.drafts[draftKey(d.set, d.lang, d.id)];
+        saveDrafts();
+      }
+    }
+    $("pr-overlay").hidden = true;
+    for (const r of results) showMessage("ok", `Pull request créée dans ${r.repo}.`, { href: r.url, text: "Ouvrir la PR #" + r.number });
+    for (const id of Object.keys(state.data)) delete state.data[id];
+    await refresh();
+  } catch (e) {
+    $("pr-submit").disabled = false; $("pr-submit").textContent = "Réessayer";
+    $("pr-overlay").hidden = true;
+    for (const r of results) showMessage("ok", `Pull request créée dans ${r.repo}.`, { href: r.url, text: "Ouvrir la PR #" + r.number });
+    showMessage("error", "La pull request n'a pas pu être créée. " + explain(e) + " Tes modifications sont conservées.");
+    render();
+  }
+}
+
+// Applique les modifications sur la dernière version de la branche principale, puis crée branche, commit et PR.
+async function createPr(repo, title, note, { drafts, initSet }) {
+  const head = await repoHead(repo);
+  const commit = await gh(`/repos/${repo}/git/commits/${head.sha}`);
+  let review = C.parseReview(await getFile(repo, REVIEW_FILE, head.sha));
+  const tree = [];
+  const lines = [];
+
+  const setIds = initSet ? [initSet] : [...new Set(drafts.map(d => d.set))];
+  for (const setId of setIds) {
+    const set = setById(setId);
+    const raws = {};
+    for (const l of set.langs) raws[l] = await getFile(repo, set.path.replace("{lang}", l), head.sha);
+    if (raws[set.source] === null) throw new GhError(404, `Fichier source introuvable : ${set.path.replace("{lang}", set.source)}`);
+
+    if (initSet) {
+      const flat = {};
+      for (const l of set.langs) flat[l] = C.flatten(JSON.parse(raws[l] || "{}"));
+      review = C.initReview(review, set.id, set.source, flat);
+      lines.push(`- **${set.label}** : état initial, toutes les clés existantes marquées comme relues.`);
+      continue;
+    }
+
+    const setDrafts = drafts.filter(d => d.set === setId);
+    // la langue source d'abord : ses corrections font partie de la référence des autres langues
+    const langs = [set.source, ...set.langs.filter(l => l !== set.source)].filter(l => setDrafts.some(d => d.lang === l));
+    let sourceObj = JSON.parse(raws[set.source]);
+    for (const lang of langs) {
+      const ld = setDrafts.filter(d => d.lang === lang);
+      const path = set.path.replace("{lang}", lang);
+      const before = raws[lang] === null ? "{}\n" : raws[lang];
+      const after = C.applyEdits(before, sourceObj, ld.filter(d => d.edited).map(d => ({ segs: d.segs, value: d.value })));
+      if (after !== null) {
+        tree.push({ path, mode: "100644", type: "blob", content: after });
+        if (lang === set.source) sourceObj = JSON.parse(after);
+      }
+      const liveIds = new Set(C.flatten(sourceObj).map(e => e.id));
+      review = C.updateReview(review, set.id, lang, lang === set.source, ld.map(d => ({ id: d.id, source: d.source, value: d.value })), liveIds);
+      const ed = ld.filter(d => d.edited).length;
+      lines.push(`- **${set.label}**, ${LANG_NAMES[lang] || lang} (\`${path}\`) : ${ed} correction${ed > 1 ? "s" : ""}, ${ld.length - ed} validation${ld.length - ed > 1 ? "s" : ""} sans changement.`);
+    }
+  }
+  tree.push({ path: REVIEW_FILE, mode: "100644", type: "blob", content: C.serializeReview(review) });
+
+  const newTree = await gh(`/repos/${repo}/git/trees`, { method: "POST", body: { base_tree: commit.tree.sha, tree } });
+  const who = state.user ? (state.user.name || state.user.login) : "relecture";
+  const newCommit = await gh(`/repos/${repo}/git/commits`, { method: "POST", body: { message: title + "\n\nCréé avec l'outil de relecture des traductions par " + who + ".", tree: newTree.sha, parents: [head.sha] } });
+  const stamp = new Date().toISOString().replace(/[-:T]/g, "").slice(0, 12);
+  const branch = `${BRANCH_PREFIX}${stamp}-${Math.random().toString(36).slice(2, 6)}`;
+  await gh(`/repos/${repo}/git/refs`, { method: "POST", body: { ref: "refs/heads/" + branch, sha: newCommit.sha } });
+
+  const corrections = drafts ? drafts.filter(d => d.edited) : [];
+  let body = (note ? note + "\n\n" : "") + "### Résumé\n" + lines.join("\n") + "\n";
+  if (corrections.length) {
+    const esc = s => String(s).replace(/\|/g, "\\|").replace(/\n/g, "<br>");
+    body += "\n### Corrections\n| Clé | Langue | Avant | Après |\n|---|---|---|---|\n" +
+      corrections.slice(0, 80).map(d => `| \`${d.id}\` | ${d.lang} | ${esc(d.original || "_(vide)_")} | ${esc(d.value)} |`).join("\n") + "\n" +
+      (corrections.length > 80 ? `\n… et ${corrections.length - 80} autres corrections (voir les fichiers modifiés).\n` : "");
+  }
+  body += `\n_Le fichier \`${REVIEW_FILE}\` enregistre les clés relues. Il est mis à jour par l'outil de relecture des traductions._\n`;
+  const pr = await gh(`/repos/${repo}/pulls`, { method: "POST", body: { title, head: branch, base: head.branch, body } });
+  return { repo, url: pr.html_url, number: pr.number };
+}
+
+/* ================= Navigation ================= */
+async function refresh(force) {
+  state.loading = true; render();
+  const set = setById(state.setId);
+  try { await loadSet(state.setId, force); }
+  catch (e) {
+    if (e.status === 401) { logout("Le jeton GitHub est refusé (expiré ou révoqué). Colle un nouveau jeton."); return; }
+    showMessage("error", "Impossible de charger les fichiers. " + explain(e, set.repo));
+  }
+  state.loading = false; render();
+}
+
+async function login(token, remember) {
+  state.token = token;
+  try {
+    state.user = await gh("/user");
+  } catch (e) {
+    state.token = null;
+    $("login-error").textContent = e.status === 401 ? "Ce jeton est refusé par GitHub. Vérifie qu'il est complet et qu'il n'a pas expiré." : "Connexion impossible : " + explain(e);
+    return;
+  }
+  sset("i18n-token", token, "session");
+  sset("i18n-token", remember ? token : null, "local");
+  $("login").hidden = true; $("app").hidden = false;
+  $("who").textContent = state.user.login;
+  await refresh();
+}
+function logout(message) {
+  state.token = null; state.user = null; state.data = {}; state.repoInfo = {};
+  sset("i18n-token", null, "session"); sset("i18n-token", null, "local");
+  $("app").hidden = true; $("login").hidden = false;
+  $("login-error").textContent = message || "";
+  $("token-input").value = "";
+}
+
+/* ================= Événements ================= */
+$("login-form").addEventListener("submit", e => {
+  e.preventDefault();
+  const t = $("token-input").value.trim();
+  if (!t) { $("login-error").textContent = "Colle d'abord ton jeton GitHub."; return; }
+  $("login-error").textContent = "";
+  login(t, $("remember").checked);
+});
+$("logout").addEventListener("click", () => logout());
+$("set-select").addEventListener("change", e => { state.setId = e.target.value; sset("i18n-set", state.setId, "local"); state.lang = null; state.shown = PAGE; refresh(); });
+$("lang-select").addEventListener("change", e => { state.lang = e.target.value; state.shown = PAGE; render(); });
+$("ref-select").addEventListener("change", e => { state.ref = e.target.value; render(); });
+let searchTimer = null;
+$("search").addEventListener("input", e => { clearTimeout(searchTimer); searchTimer = setTimeout(() => { state.search = e.target.value.trim(); state.shown = PAGE; render(); }, 150); });
+$("more-btn").addEventListener("click", () => { state.shown += PAGE; render(); });
+$("validate-visible").addEventListener("click", validateVisible);
+$("reload").addEventListener("click", () => refresh(true));
+$("discard").addEventListener("click", () => {
+  const btn = $("discard");
+  if (btn.dataset.confirm !== "1") { btn.dataset.confirm = "1"; btn.textContent = "Confirmer l'annulation"; setTimeout(() => { btn.dataset.confirm = ""; btn.textContent = "Tout annuler"; }, 4000); return; }
+  btn.dataset.confirm = ""; btn.textContent = "Tout annuler";
+  state.drafts = {}; saveDrafts(); render();
+});
+$("open-pr").addEventListener("click", () => openPrSheet("drafts"));
+$("init-btn").addEventListener("click", () => openPrSheet("init", state.setId));
+$("pr-cancel").addEventListener("click", () => { $("pr-overlay").hidden = true; });
+$("pr-submit").addEventListener("click", submitPr);
+document.addEventListener("keydown", e => { if (e.key === "Escape" && !$("pr-overlay").hidden) $("pr-overlay").hidden = true; });
+
+/* ================= Démarrage ================= */
+const saved = sget("i18n-token", "session") || sget("i18n-token", "local");
+if (saved) { $("remember").checked = !!sget("i18n-token", "local"); login(saved, !!sget("i18n-token", "local")); }
+else { $("login").hidden = false; }
+})();
+</script>
+</body>
+</html>
