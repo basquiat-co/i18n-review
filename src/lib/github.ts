@@ -88,26 +88,33 @@ export class GitHub {
     let review: C.Review;
     try { review = C.parseReview(reviewRaw); }
     catch (e) { throw new Error(`Le fichier ${REVIEW_FILE} n'est pas un JSON valide (${(e as Error).message}).`); }
-    const pending = await this.loadPending(set, review);
+    const pending = await this.loadPending(set, head.sha, review);
     return { sha: head.sha, branch: head.branch, flat, review, pending };
   }
 
-  // Clés déjà validées dans des pull requests ouvertes par l'outil.
-  private async loadPending(set: FileSet, baseReview: C.Review) {
+  // Clés validées dans des pull requests ouvertes par l'outil : chaque PR est comparée à sa propre base
+  // (base.sha, fixée à sa création), pas à la branche principale actuelle qui a pu avancer depuis.
+  private async loadPending(set: FileSet, mainSha: string, mainReview: C.Review) {
     const out: SetData["pending"] = {};
     set.langs.forEach(l => out[l] = new Map());
-    type Pr = { number: number; html_url: string; head?: { ref?: string; sha: string; repo?: { full_name: string } } };
+    type Pr = { number: number; html_url: string; base: { sha: string }; head?: { ref?: string; sha: string; repo?: { full_name: string } } };
     let prs: Pr[] = [];
     try { prs = await this.request<Pr[]>(`/repos/${set.repo}/pulls?state=open&per_page=50`); } catch { return out; }
     prs = prs.filter(p => p.head?.ref?.startsWith(BRANCH_PREFIX) && p.head.repo?.full_name === set.repo).slice(0, 10);
+    // Le fichier pèse plusieurs centaines de Ko : une seule lecture par commit, aucune pour la branche principale déjà lue.
+    const reviews = new Map<string, Promise<C.Review | null>>([[mainSha, Promise.resolve(mainReview)]]);
+    const reviewAt = (sha: string) => {
+      if (!reviews.has(sha)) reviews.set(sha, this.getFile(set.repo, REVIEW_FILE, sha).then(C.parseReview).catch(() => null));
+      return reviews.get(sha)!;
+    };
     await Promise.all(prs.map(async p => {
-      const raw = await this.getFile(set.repo, REVIEW_FILE, p.head!.sha).catch(() => null);
-      if (!raw) return;
-      let r: C.Review;
-      try { r = C.parseReview(raw); } catch { return; }
+      const [head, base] = await Promise.all([reviewAt(p.head!.sha), reviewAt(p.base.sha)]);
+      if (!head || !base) return;
       for (const l of set.langs) {
-        const base = C.reviewEntries(baseReview, set.id, l), next = C.reviewEntries(r, set.id, l);
-        for (const k of Object.keys(next)) if (next[k] !== base[k]) out[l].set(k, { number: p.number, url: p.html_url });
+        const entries = (r: C.Review) => C.reviewEntries(r, set.id, l);
+        for (const k of C.changedEntries(entries(base), entries(head), entries(mainReview))) {
+          out[l].set(k, { number: p.number, url: p.html_url });
+        }
       }
     }));
     return out;

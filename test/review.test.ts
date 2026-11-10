@@ -82,13 +82,22 @@ test("computeRows : une clé absente a une valeur vide et exists = false", () =>
   assert.deepEqual(r.segs, ["a"]);
 });
 
-test("computeRows : une clé validée dans une PR ouverte est « en attente », sauf si elle est déjà relue", () => {
+test("computeRows : une clé validée ou corrigée dans une PR ouverte est « en attente », même déjà relue", () => {
   const pr = { number: 12, url: "https://github.com/o/r/pull/12" };
   const pending = new Map([["todo", pr], ["done", pr], ["absent", pr]]);
-  const list = rows({ todo: "A", done: "B", absent: "C" }, { todo: "a", done: "b" }, { done: hash("B") + " " + hash("b") }, pending);
-  assert.deepEqual(statusOf(list), { todo: S.pending, done: S.ok, absent: S.pending });
-  assert.deepEqual(list[0].pending, pr);
-  assert.equal(list[1].pending, null);
+  const entries = { done: hash("B") + " " + hash("b"), other: hash("D") + " " + hash("d") };
+  const list = rows({ todo: "A", done: "B", absent: "C", other: "D" }, { todo: "a", done: "b", other: "d" }, entries, pending);
+  assert.deepEqual(statusOf(list), { todo: S.pending, done: S.pending, absent: S.pending, other: S.ok });
+  assert.deepEqual(list[1].pending, pr);
+  assert.equal(list[3].pending, null);
+});
+
+test("changedEntries : ce que la PR change par rapport à sa base, hors entrées déjà sur la branche principale", () => {
+  const base = { kept: "1", fixed: "1", stale: "1", merged: "1" };
+  // La branche principale a avancé depuis la base : « stale » relue ailleurs, « merged » déjà identique à la PR.
+  const main = { kept: "1", fixed: "1", stale: "2", merged: "3" };
+  const head = { kept: "1", fixed: "9", stale: "1", merged: "3", added: "5" };
+  assert.deepEqual(C.changedEntries(base, head, main), ["fixed", "added"]);
 });
 
 test("computeRows : langue source (une seule empreinte par entrée)", () => {

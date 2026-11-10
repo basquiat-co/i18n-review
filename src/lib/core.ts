@@ -284,6 +284,12 @@ export function reviewEntries(review: Review, setId: string, lang: string): Revi
   return (review.sets[setId] && review.sets[setId][lang]) || {};
 }
 
+// Clés qu'une PR change dans l'état de relecture d'une langue : son entrée diffère de celle de sa base,
+// et n'est pas déjà celle de la branche principale.
+export function changedEntries(base: ReviewEntries, head: ReviewEntries, main: ReviewEntries): string[] {
+  return Object.keys(head).filter(k => head[k] !== base[k] && head[k] !== main[k]);
+}
+
 function entryFor(isSource: boolean, sourceValue: string, targetValue: string): string {
   return isSource ? hash(targetValue) : hash(sourceValue) + " " + hash(targetValue);
 }
@@ -333,7 +339,8 @@ export function computeRows({ sourceFlat, targetFlat, isSource, entries, pending
       else status = STATUS.ok;
     }
     let pending: PendingInfo | null = null;
-    if (status !== STATUS.ok && pendingEntries && pendingEntries.has(src.id)) {
+    // Y compris une clé relue : une PR peut corriger une traduction déjà validée.
+    if (pendingEntries && pendingEntries.has(src.id)) {
       pending = pendingEntries.get(src.id)!;
       status = STATUS.pending;
     }

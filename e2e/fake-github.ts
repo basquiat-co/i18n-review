@@ -4,7 +4,7 @@ import type { Route } from "@playwright/test";
  * Fausse API GitHub, branchée sur les requêtes du navigateur (context.route) : aucun appel réseau réel.
  * files : "propriétaire/dépôt:chemin" pour la branche principale, "propriétaire/dépôt@sha:chemin" pour un autre commit.
  */
-export interface PullInfo { number: number; ref: string; sha: string; repo?: string }
+export interface PullInfo { number: number; ref: string; sha: string; repo?: string; base?: string }
 
 export class FakeGitHub {
   files: Record<string, string> = {};
@@ -52,6 +52,7 @@ export class FakeGitHub {
     if ((m = p.match(/^\/repos\/([^/]+\/[^/]+)\/pulls$/)) && method === "GET") {
       return json(200, (this.pulls[m[1]] || []).map(pr => ({
         number: pr.number, html_url: `https://github.com/${m![1]}/pull/${pr.number}`,
+        base: { sha: pr.base || "base" },
         head: { ref: pr.ref, sha: pr.sha, repo: { full_name: pr.repo || m![1] } },
       })));
     }

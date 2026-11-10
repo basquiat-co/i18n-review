@@ -186,11 +186,15 @@ test("sans état de relecture : marquer l'existant comme relu", async ({ page, g
 
 test("une clé validée dans une PR ouverte est « en attente »", async ({ page, gh }) => {
   gh.pulls[APP] = [{ number: 7, ref: "i18n-review/202610161200-abcd", sha: "pr7" }];
-  gh.files[`${APP}@pr7:${REVIEW}`] = gh.files[`${APP}:${REVIEW}`].replace(hash("Au revoir !"), hash(FR.bye));
+  // bye validée, hello (déjà relue) corrigée : les deux sont en attente.
+  gh.files[`${APP}@pr7:${REVIEW}`] = gh.files[`${APP}:${REVIEW}`]
+    .replace(hash("Au revoir !"), hash(FR.bye)).replace(hash(DE.hello), hash("Hallo, {name}"));
   await login(page);
   await filter(page, "En attente").click();
   await expect(row(page, "bye")).toContainText("En attente");
   await expect(row(page, "bye").getByRole("link", { name: "PR #7" })).toHaveAttribute("href", `https://github.com/${APP}/pull/7`);
+  await expect(row(page, "hello")).toContainText("En attente");
+  await expect(row(page, "hello").getByRole("link", { name: "PR #7" })).toBeVisible();
 });
 
 test("un jeton refusé est signalé", async ({ page, gh }) => {
