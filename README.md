@@ -5,6 +5,27 @@ Les traductrices et traducteurs relisent les fichiers de traduction directement 
 
 Application React (Vite, TypeScript, Tailwind, [shadcn/ui](https://ui.shadcn.com)), compilée en **un seul fichier HTML** et publiée sur GitHub Pages.
 
+**Site : <https://basquiat-co.github.io/i18n-review/>**
+
+## Créer un jeton GitHub
+
+L'outil demande un jeton personnel *fine-grained* à la connexion. Il faut un compte GitHub membre de l'organisation `basquiat-co`.
+
+1. Ouvre [GitHub → Settings → Developer settings → Personal access tokens → Fine-grained tokens → Generate new token](https://github.com/settings/personal-access-tokens/new).
+2. **Token name** : par exemple `i18n-review`. **Expiration** : au choix (à l'expiration, il suffit d'en créer un nouveau).
+3. **Resource owner** : `basquiat-co` (pas ton compte personnel).
+4. **Repository access** : *Only select repositories*, puis les dépôts à relire : `basquiat-app`, `basquiat-service`, `lift-agentic-service`.
+5. **Permissions → Repository permissions** :
+   - **Contents** : *Read and write*
+   - **Pull requests** : *Read and write*
+   - *Metadata* (*Read-only*) s'ajoute tout seul.
+6. **Generate token**, puis copie le jeton (`github_pat_…`) : GitHub ne l'affiche qu'une fois.
+7. Colle-le sur la page de connexion du [site](https://basquiat-co.github.io/i18n-review/).
+
+Si l'organisation exige une approbation des jetons, le jeton reste « pending » jusqu'à ce qu'un propriétaire de `basquiat-co` l'approuve (*Organization settings → Personal access tokens → Pending requests*) ; d'ici là l'outil répond que le jeton n'a pas accès au dépôt.
+
+Un jeton se révoque à tout moment dans [Settings → Personal access tokens](https://github.com/settings/personal-access-tokens).
+
 ## Développement
 
 Node 22 ou plus.
