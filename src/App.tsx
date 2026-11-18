@@ -48,6 +48,13 @@ function Workspace() {
         {needsInit ? <InitNotice /> : null}
         {data ? (
           <>
+            {data.pr ? (
+              <p className="text-sm text-muted-foreground">
+                Les textes affichés incluent la relecture en cours, pas encore fusionnée (
+                <a href={data.pr.url} target="_blank" rel="noopener" className="font-medium text-primary underline-offset-4 hover:underline">PR #{data.pr.number}</a>
+                ). Tes prochaines modifications s'y ajouteront.
+              </p>
+            ) : null}
             <Overview counts={counts} langs={langs} />
             <Toolbar countLine={countLine} canValidate={units.some(u => unitCells(u).some(canValidateRow))}
               onValidate={() => validate(units.flatMap(unitCells))} />

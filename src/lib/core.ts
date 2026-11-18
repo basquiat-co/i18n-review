@@ -284,12 +284,6 @@ export function reviewEntries(review: Review, setId: string, lang: string): Revi
   return (review.sets[setId] && review.sets[setId][lang]) || {};
 }
 
-// Clés qu'une PR change dans l'état de relecture d'une langue : son entrée diffère de celle de sa base,
-// et n'est pas déjà celle de la branche principale.
-export function changedEntries(base: ReviewEntries, head: ReviewEntries, main: ReviewEntries): string[] {
-  return Object.keys(head).filter(k => head[k] !== base[k] && head[k] !== main[k]);
-}
-
 function entryFor(isSource: boolean, sourceValue: string, targetValue: string): string {
   return isSource ? hash(targetValue) : hash(sourceValue) + " " + hash(targetValue);
 }
@@ -300,27 +294,24 @@ export const STATUS = {
   fresh: "new",         // jamais relue
   source: "source",     // le texte source a changé depuis la relecture
   modified: "modified", // la traduction a été modifiée en dehors de la relecture
-  pending: "pending",   // validée dans une PR ouverte, pas encore fusionnée
   ok: "ok",             // relue et inchangée
 } as const;
 export type Status = typeof STATUS[keyof typeof STATUS];
 
-export interface PendingInfo { number: number; url: string }
 export interface Row {
   id: string; segs: string[]; source: string;
   value: string; exists: boolean;
-  status: Status; pending: PendingInfo | null;
+  status: Status;
   group?: string; form?: string;
 }
 
 /**
  * Construit les lignes à afficher pour une langue.
- * sourceFlat / targetFlat : sorties de flatten() ; entries : entrées de relecture de cette langue ;
- * pendingEntries : Map clé -> { number, url } venant des PR ouvertes.
+ * sourceFlat / targetFlat : sorties de flatten() ; entries : entrées de relecture de cette langue.
  */
-export function computeRows({ sourceFlat, targetFlat, isSource, entries, pendingEntries }: {
+export function computeRows({ sourceFlat, targetFlat, isSource, entries }: {
   sourceFlat: FlatEntry[]; targetFlat?: FlatEntry[] | null; isSource: boolean;
-  entries: ReviewEntries; pendingEntries?: Map<string, PendingInfo>;
+  entries: ReviewEntries;
 }): Row[] {
   const target = isSource ? null : toMap(targetFlat || []);
   const rows: Row[] = [];
@@ -338,16 +329,10 @@ export function computeRows({ sourceFlat, targetFlat, isSource, entries, pending
       else if (trHash !== hash(value)) status = STATUS.modified;
       else status = STATUS.ok;
     }
-    let pending: PendingInfo | null = null;
-    // Y compris une clé relue : une PR peut corriger une traduction déjà validée.
-    if (pendingEntries && pendingEntries.has(src.id)) {
-      pending = pendingEntries.get(src.id)!;
-      status = STATUS.pending;
-    }
     rows.push({
       id: src.id, segs: src.segs, source: src.value,
       value: value === undefined ? "" : value, exists: value !== undefined,
-      status, pending,
+      status,
     });
   }
   return rows;
@@ -356,7 +341,7 @@ export function computeRows({ sourceFlat, targetFlat, isSource, entries, pending
 export type StatusCounts = Record<Status, number> & { todo: number; total: number };
 
 export function countStatuses(rows: { status: Status }[]): StatusCounts {
-  const c = { missing: 0, new: 0, source: 0, modified: 0, pending: 0, ok: 0, todo: 0, total: 0 };
+  const c = { missing: 0, new: 0, source: 0, modified: 0, ok: 0, todo: 0, total: 0 };
   for (const r of rows) c[r.status]++;
   c.todo = c.missing + c.new + c.source + c.modified;
   c.total = rows.length;

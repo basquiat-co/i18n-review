@@ -27,11 +27,3 @@ export function DraftBadge({ edited, plural }: { edited: boolean; plural?: boole
     </span>
   );
 }
-
-export function PendingLink({ pending }: { pending: { number: number; url: string } }) {
-  return (
-    <a href={pending.url} target="_blank" rel="noopener" className="text-xs font-medium text-primary underline-offset-4 hover:underline">
-      PR #{pending.number}
-    </a>
-  );
-}

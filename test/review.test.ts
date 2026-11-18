@@ -6,10 +6,10 @@ const { hash } = C;
 const S = C.STATUS;
 
 // Lignes d'une langue cible à partir d'objets JSON, comme le fait l'application.
-function rows(source: C.JsonObject, target: C.JsonObject, entries: C.ReviewEntries = {}, pending?: Map<string, C.PendingInfo>) {
+function rows(source: C.JsonObject, target: C.JsonObject, entries: C.ReviewEntries = {}) {
   return C.computeRows({
     sourceFlat: C.flatten(source), targetFlat: C.flatten(target), isSource: false,
-    entries, pendingEntries: pending,
+    entries,
   });
 }
 const statusOf = (list: C.Row[]) => Object.fromEntries(list.map(r => [r.id, r.status]));
@@ -82,24 +82,6 @@ test("computeRows : une clé absente a une valeur vide et exists = false", () =>
   assert.deepEqual(r.segs, ["a"]);
 });
 
-test("computeRows : une clé validée ou corrigée dans une PR ouverte est « en attente », même déjà relue", () => {
-  const pr = { number: 12, url: "https://github.com/o/r/pull/12" };
-  const pending = new Map([["todo", pr], ["done", pr], ["absent", pr]]);
-  const entries = { done: hash("B") + " " + hash("b"), other: hash("D") + " " + hash("d") };
-  const list = rows({ todo: "A", done: "B", absent: "C", other: "D" }, { todo: "a", done: "b", other: "d" }, entries, pending);
-  assert.deepEqual(statusOf(list), { todo: S.pending, done: S.pending, absent: S.pending, other: S.ok });
-  assert.deepEqual(list[1].pending, pr);
-  assert.equal(list[3].pending, null);
-});
-
-test("changedEntries : ce que la PR change par rapport à sa base, hors entrées déjà sur la branche principale", () => {
-  const base = { kept: "1", fixed: "1", stale: "1", merged: "1" };
-  // La branche principale a avancé depuis la base : « stale » relue ailleurs, « merged » déjà identique à la PR.
-  const main = { kept: "1", fixed: "1", stale: "2", merged: "3" };
-  const head = { kept: "1", fixed: "9", stale: "1", merged: "3", added: "5" };
-  assert.deepEqual(C.changedEntries(base, head, main), ["fixed", "added"]);
-});
-
 test("computeRows : langue source (une seule empreinte par entrée)", () => {
   const flat = C.flatten({ ok: "Oui", mod: "Changé", fresh: "Neuf", empty: "" });
   const list = C.computeRows({
@@ -111,9 +93,9 @@ test("computeRows : langue source (une seule empreinte par entrée)", () => {
 });
 
 test("countStatuses : compteurs, « à relire » et total", () => {
-  const list = [S.ok, S.ok, S.missing, S.fresh, S.source, S.modified, S.pending].map(status => ({ status }));
-  assert.deepEqual(C.countStatuses(list), { missing: 1, new: 1, source: 1, modified: 1, pending: 1, ok: 2, todo: 4, total: 7 });
-  assert.deepEqual(C.countStatuses([]), { missing: 0, new: 0, source: 0, modified: 0, pending: 0, ok: 0, todo: 0, total: 0 });
+  const list = [S.ok, S.ok, S.missing, S.fresh, S.source, S.modified].map(status => ({ status }));
+  assert.deepEqual(C.countStatuses(list), { missing: 1, new: 1, source: 1, modified: 1, ok: 2, todo: 4, total: 6 });
+  assert.deepEqual(C.countStatuses([]), { missing: 0, new: 0, source: 0, modified: 0, ok: 0, todo: 0, total: 0 });
 });
 
 /* ---------- Application d'une relecture ---------- */

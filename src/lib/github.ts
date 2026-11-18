@@ -8,13 +8,16 @@ export class GhError extends Error {
 
 export interface GhUser { login: string; name?: string | null; avatar_url?: string }
 
-/** Contenu d'un jeu de fichiers sur la branche principale. */
+/**
+ * Contenu d'un jeu de fichiers tel qu'il sera une fois la relecture en cours fusionnée : lu sur la PR ouverte
+ * de l'outil (`pr`) quand il y en a une, sinon sur la branche principale.
+ */
 export interface SetData {
   sha: string;
   branch: string;
   flat: Record<string, C.FlatEntry[]>;
   review: C.Review;
-  pending: Record<string, Map<string, C.PendingInfo>>; // clés déjà validées dans des PR ouvertes par l'outil
+  pr: { number: number; url: string } | null;
 }
 
 /** PR envoyée : `updated` quand les modifications ont rejoint une PR de l'outil déjà ouverte. */
@@ -93,8 +96,12 @@ export class GitHub {
   }
 
   /* ---------- Chargement d'un jeu de fichiers ---------- */
+  // Même source que l'envoi (sendPr) : ce qui est affiché est ce sur quoi les modifications seront appliquées.
   async loadSet(set: FileSet): Promise<SetData> {
-    const head = await this.repoHead(set.repo);
+    const main = await this.repoHead(set.repo);
+    // Sans le droit de lire les PR, l'outil affiche la branche principale plutôt que rien.
+    const pr = await this.openToolPr(set.repo).catch(e => { if ((e as GhError).status === 401) throw e; return null; });
+    const head = pr ? { branch: pr.branch, sha: pr.sha } : main;
     const raws = await Promise.all(set.langs.map(l => this.getFile(set.repo, filePath(set, l), head.sha)));
     const flat: Record<string, C.FlatEntry[]> = {};
     set.langs.forEach((l, i) => { flat[l] = C.flatten(parseJson(raws[i] === null ? "{}" : raws[i]!, filePath(set, l))); });
@@ -102,34 +109,7 @@ export class GitHub {
     let review: C.Review;
     try { review = C.parseReview(reviewRaw); }
     catch (e) { throw new Error(`Le fichier ${REVIEW_FILE} n'est pas un JSON valide (${(e as Error).message}).`); }
-    const pending = await this.loadPending(set, head.sha, review);
-    return { sha: head.sha, branch: head.branch, flat, review, pending };
-  }
-
-  // Clés validées dans des pull requests ouvertes par l'outil : chaque PR est comparée à sa propre base
-  // (base.sha, fixée à sa création), pas à la branche principale actuelle qui a pu avancer depuis.
-  private async loadPending(set: FileSet, mainSha: string, mainReview: C.Review) {
-    const out: SetData["pending"] = {};
-    set.langs.forEach(l => out[l] = new Map());
-    let prs: PrListItem[] = [];
-    try { prs = (await this.toolPrs(set.repo)).slice(0, 10); } catch { return out; }
-    // Le fichier pèse plusieurs centaines de Ko : une seule lecture par commit, aucune pour la branche principale déjà lue.
-    const reviews = new Map<string, Promise<C.Review | null>>([[mainSha, Promise.resolve(mainReview)]]);
-    const reviewAt = (sha: string) => {
-      if (!reviews.has(sha)) reviews.set(sha, this.getFile(set.repo, REVIEW_FILE, sha).then(C.parseReview).catch(() => null));
-      return reviews.get(sha)!;
-    };
-    await Promise.all(prs.map(async p => {
-      const [head, base] = await Promise.all([reviewAt(p.head!.sha), reviewAt(p.base.sha)]);
-      if (!head || !base) return;
-      for (const l of set.langs) {
-        const entries = (r: C.Review) => C.reviewEntries(r, set.id, l);
-        for (const k of C.changedEntries(entries(base), entries(head), entries(mainReview))) {
-          out[l].set(k, { number: p.number, url: p.html_url });
-        }
-      }
-    }));
-    return out;
+    return { sha: head.sha, branch: head.branch, flat, review, pr: pr && { number: pr.number, url: pr.url } };
   }
 
   /* ---------- Pull requests ouvertes par l'outil ---------- */

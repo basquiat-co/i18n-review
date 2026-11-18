@@ -2,7 +2,7 @@ import { useRef } from "react";
 import { AlertTriangle, Check, Undo2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { AutoTextarea, focusNext } from "@/components/AutoTextarea";
-import { DraftBadge, PendingLink, StatusBadge } from "@/components/StatusBadge";
+import { DraftBadge, StatusBadge } from "@/components/StatusBadge";
 import * as C from "@/lib/core";
 import { FORM_LABEL, langName, type FileSet } from "@/lib/config";
 import { compositeOf, isSplittable } from "@/lib/composite";
@@ -91,7 +91,6 @@ function LangCell({ cell, set }: { cell: Cell; set: FileSet }) {
         <LangTag lang={cell.lang} />
         <StatusBadge status={cell.status} />
         {cell.draft ? <DraftBadge edited={cell.draft.edited} /> : null}
-        {cell.pending ? <PendingLink pending={cell.pending} /> : null}
       </div>
       <div className={cn("flex flex-col gap-2", cell.draft && "[&_textarea]:border-draft/60")}>{fields}</div>
       {cell.lang === set.source ? null : <VarWarning vars={C.missingPlaceholders(cell.source, current)} />}
@@ -195,14 +194,12 @@ export function PluralGroup({ groupId, keys, layout }: { groupId: string; keys: 
           {langs.map((lang, li) => {
             const cells = keys.map(k => k.cells[li]);
             const drafts = cells.filter(c => c.draft);
-            const pending = cells.find(c => c.pending);
             return (
               <div key={lang} className="flex min-w-0 flex-col gap-2">
                 <div className="flex flex-wrap items-center gap-2">
                   <LangTag lang={lang} />
                   <StatusBadge status={worstStatus(cells)} />
                   {drafts.length ? <DraftBadge plural edited={drafts.some(d => d.draft!.edited)} /> : null}
-                  {pending ? <PendingLink pending={pending.pending!} /> : null}
                 </div>
                 <div className="flex flex-wrap items-center gap-1.5">
                   {cells.some(canValidateRow) ? <Button size="sm" variant="outline" className="h-7" onClick={() => validate(cells)}><Check />Valider le pluriel</Button> : null}

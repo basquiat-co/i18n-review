@@ -24,7 +24,7 @@ export function activeLangs(set: FileSet, prefs: Record<string, string[]>): stri
 export function rowsFor(set: FileSet, data: SetData, lang: string, drafts: C.Drafts): Cell[] {
   const rows = C.computeRows({
     sourceFlat: data.flat[set.source], targetFlat: data.flat[lang], isSource: lang === set.source,
-    entries: C.reviewEntries(data.review, set.id, lang), pendingEntries: data.pending[lang],
+    entries: C.reviewEntries(data.review, set.id, lang),
   });
   return C.annotatePlurals(rows.map(r => ({ ...r, lang, draft: drafts[draftKey(set.id, lang, r.id)] || null })));
 }

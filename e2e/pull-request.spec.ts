@@ -104,8 +104,8 @@ test("avec des PR empilées, c'est le sommet de la pile qui est mis à jour", as
 });
 
 test("une PR fusionnée juste avant l'écriture n'est pas modifiée : une nouvelle PR part de la branche principale", async ({ page, gh }) => {
-  // 1re lecture (choix de la PR) : ouverte ; 2e lecture (juste avant d'écrire) : fusionnée.
-  openPr(gh, { number: 7, ref: "i18n-review/202610161200-abcd", sha: "pr7", mergeAtRead: 2 });
+  // Lectures de la PR : au chargement de l'écran et au choix de la PR, ouverte ; juste avant d'écrire, fusionnée.
+  openPr(gh, { number: 7, ref: "i18n-review/202610161200-abcd", sha: "pr7", mergeAtRead: 3 });
   await login(page);
   await send(page);
   await expect(page.getByText(`Pull request créée dans ${APP}.`)).toBeVisible();

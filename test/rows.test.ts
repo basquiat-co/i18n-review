@@ -13,7 +13,7 @@ function data(fr: C.JsonObject, de: C.JsonObject, entries: C.ReviewEntries = {})
     sha: "s", branch: "main",
     flat: { fr: C.flatten(fr), de: C.flatten(de), en: [], it: [] },
     review: { version: 1, sets: { app: { de: entries } } },
-    pending: { fr: new Map(), de: new Map(), en: new Map(), it: new Map() },
+    pr: null,
   };
 }
 const FR = { a: "A", b: "B", n: { one: "1 x", other: "{{count}} x" } };

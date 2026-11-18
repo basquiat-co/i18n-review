@@ -50,17 +50,16 @@ export const STATUS_INFO: { key: FilterKey; label: string; status?: Status }[] =
   { key: "new", label: "Nouvelles", status: "new" },
   { key: "source", label: "Source modifiée", status: "source" },
   { key: "modified", label: "Modifiées hors relecture", status: "modified" },
-  { key: "pending", label: "En attente de fusion", status: "pending" },
   { key: "ok", label: "Relues", status: "ok" },
   { key: "all", label: "Toutes" },
 ];
 
 export const PILL: Record<Status, string> = {
-  missing: "Manquante", new: "Nouvelle", source: "Source modifiée", modified: "Modifiée hors relecture", pending: "En attente", ok: "Relue",
+  missing: "Manquante", new: "Nouvelle", source: "Source modifiée", modified: "Modifiée hors relecture", ok: "Relue",
 };
 
 export const TODO: Status[] = ["missing", "new", "source", "modified"];
 // Statut affiché pour un pluriel : le plus urgent de ses formes.
-export const STATUS_ORDER: Status[] = ["missing", "source", "modified", "new", "pending", "ok"];
+export const STATUS_ORDER: Status[] = ["missing", "source", "modified", "new", "ok"];
 
 export const FORM_LABEL: Record<string, string> = { zero: "zéro", one: "un", two: "deux", few: "quelques", many: "beaucoup", other: "plusieurs" };

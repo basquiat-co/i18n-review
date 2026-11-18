@@ -1,5 +1,5 @@
 import { hash } from "../src/lib/core";
-import { test, expect, login, row, field, summary, filter, edit, createPr, APP, DE, DE_PATH, FR, REVIEW, json } from "./fixtures";
+import { test, expect, login, row, field, summary, filter, edit, createPr, APP, DE, DE_PATH, FR, FR_PATH, REVIEW, json } from "./fixtures";
 
 test("connexion, statuts et filtres", async ({ page }) => {
   await login(page);
@@ -184,17 +184,20 @@ test("sans état de relecture : marquer l'existant comme relu", async ({ page, g
   expect(Object.keys(de).sort()).toEqual(["bye", "files.one", "files.other", "hello", "members", "menu.open"]);
 });
 
-test("une clé validée dans une PR ouverte est « en attente »", async ({ page, gh }) => {
+test("avec une PR de l'outil ouverte, l'écran montre ses textes et ses statuts, pas ceux de la branche principale", async ({ page, gh }) => {
   gh.pulls[APP] = [{ number: 7, ref: "i18n-review/202610161200-abcd", sha: "pr7" }];
-  // bye validée, hello (déjà relue) corrigée : les deux sont en attente.
+  // Dans la PR : bye validée telle quelle, hello (déjà relue) corrigée.
+  gh.files[`${APP}@pr7:${FR_PATH}`] = json(FR);
+  gh.files[`${APP}@pr7:${DE_PATH}`] = json({ ...DE, hello: "Hallo, {name}" });
   gh.files[`${APP}@pr7:${REVIEW}`] = gh.files[`${APP}:${REVIEW}`]
     .replace(hash("Au revoir !"), hash(FR.bye)).replace(hash(DE.hello), hash("Hallo, {name}"));
   await login(page);
-  await filter(page, "En attente").click();
-  await expect(row(page, "bye")).toContainText("En attente");
-  await expect(row(page, "bye").getByRole("link", { name: "PR #7" })).toHaveAttribute("href", `https://github.com/${APP}/pull/7`);
-  await expect(row(page, "hello")).toContainText("En attente");
-  await expect(row(page, "hello").getByRole("link", { name: "PR #7" })).toBeVisible();
+  await expect(page.getByRole("link", { name: "PR #7" })).toHaveAttribute("href", `https://github.com/${APP}/pull/7`);
+  await expect(filter(page, "En attente")).toHaveCount(0);
+  await filter(page, "Relues").click();
+  await expect(row(page, "bye")).toContainText("Relue");
+  await expect(row(page, "hello")).toContainText("Relue");
+  await expect(field(page, "hello")).toHaveValue("Hallo, {name}");
 });
 
 test("un jeton refusé est signalé", async ({ page, gh }) => {
