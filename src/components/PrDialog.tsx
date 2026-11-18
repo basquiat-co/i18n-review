@@ -66,10 +66,11 @@ function PrForm() {
       {pr.mode === "drafts" && pr.checking ? (
         <p role="status" className="flex items-center gap-2 text-sm text-muted-foreground"><Loader2 className="size-4 animate-spin" />Comparaison avec la dernière version de la branche principale…</p>
       ) : null}
-      {pr.refused ? (
-        <p role="alert" className="rounded-lg border border-[color:var(--st-source)] bg-[color:color-mix(in_oklab,var(--st-source)_8%,transparent)] px-3 py-2 text-sm">
-          Rien n'a été envoyé : la branche principale a changé pendant ta relecture. Revois les corrections ci-dessous, puis crée la pull request.
-        </p>
+      {pr.refused || pr.checkError ? (
+        <div role="alert" className="flex flex-col gap-1 rounded-lg border border-[color:var(--st-source)] bg-[color:color-mix(in_oklab,var(--st-source)_8%,transparent)] px-3 py-2 text-sm">
+          {pr.refused ? <p>Rien n'a été envoyé : la branche principale a changé pendant ta relecture.{conflicts.length ? " Revois les corrections ci-dessous, puis crée la pull request." : ""}</p> : null}
+          {pr.checkError ? <p>{pr.checkError}{pr.refused ? "" : " L'envoi la vérifiera de toute façon."}</p> : null}
+        </div>
       ) : null}
       {conflicts.length ? (
         <section className="flex flex-col gap-2" aria-labelledby="pr-conflicts">

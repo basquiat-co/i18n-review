@@ -128,3 +128,30 @@ test("une vérification qui échoue ne dérange pas Alex", async ({ page, gh }) 
   await expect(page.getByRole("alert")).toHaveCount(0);
   await expect(field(page, "bye")).toHaveValue("Tschüss");
 });
+
+test("un fichier source vidé sur main ne retire aucune modification, et l'envoi nomme le fichier", async ({ page, gh }) => {
+  await login(page);
+  await edit(page, "bye", "Tschau");
+  gh.moveMain("m2", { [`${APP}:${FR_PATH}`]: json({}) });
+  await backToTab(page);
+  await expect.poll(() => gh.calls.some(c => c.includes("/compare/base...m2"))).toBe(true);
+  await page.waitForTimeout(300);
+  await expect(page.getByText(/modification retirée/)).toHaveCount(0);
+  await expect(summary(page)).toContainText("1 correction");
+
+  await page.getByRole("button", { name: "Préparer la pull request" }).click();
+  await page.getByRole("dialog").getByRole("button", { name: "Créer la pull request" }).click();
+  await expect(page.getByRole("alert").filter({ hasText: "Fichier source introuvable ou vide" })).toContainText(FR_PATH);
+  expect(gh.writes()).toBe(0);
+  await expect(summary(page)).toContainText("1 correction");
+});
+
+test("si main ne peut pas être relue à l'ouverture de l'envoi, la fenêtre le dit", async ({ page, gh }) => {
+  await login(page);
+  await edit(page, "bye", "Tschau");
+  gh.mainStatus = 500;
+  await page.getByRole("button", { name: "Préparer la pull request" }).click();
+  const dialog = page.getByRole("dialog");
+  await expect(dialog.getByRole("alert")).toContainText("Impossible de relire la branche principale");
+  await expect(dialog.getByRole("button", { name: "Créer la pull request" })).toBeEnabled();
+});

@@ -96,7 +96,7 @@ function LangCell({ cell, set }: { cell: Cell; set: FileSet }) {
       </div>
       <div className={cn("flex flex-col gap-2", cell.draft && "[&_textarea]:border-draft/60")}>{fields}</div>
       {cell.lang === set.source ? null : <VarWarning vars={C.missingPlaceholders(cell.source, current)} />}
-      {isConflict(cell) ? <DriftNote draftKey={rk} draft={cell.draft!} now={cellNow(cell)} compact /> : null}
+      {isConflict(cell, set.source) ? <DriftNote draftKey={rk} draft={cell.draft!} now={cellNow(cell, set.source)} compact /> : null}
       <div className="flex flex-wrap items-center gap-1.5">
         {canValidate ? <Button size="sm" variant="outline" className="h-7" onMouseDown={e => e.preventDefault()} onClick={() => commit(true)}><Check />Valider</Button> : null}
         {cell.draft ? <Button size="sm" variant="ghost" className="h-7" onClick={() => undo([cell])}><Undo2 />Annuler</Button> : null}
@@ -185,7 +185,7 @@ export function PluralGroup({ groupId, keys, layout }: { groupId: string; keys: 
                     {cell.status === langStatus ? null : <StatusBadge status={cell.status} className="self-start" />}
                     <FormField cell={cell} form={k.form!} groupId={groupId} set={set} />
                     <VarWarning vars={cell.lang === set.source ? [] : formVars(k.form, cell.source, current)} />
-                    {isConflict(cell) ? <DriftNote draftKey={draftKey(set.id, cell.lang, cell.id)} draft={cell.draft!} now={cellNow(cell)} compact /> : null}
+                    {isConflict(cell, set.source) ? <DriftNote draftKey={draftKey(set.id, cell.lang, cell.id)} draft={cell.draft!} now={cellNow(cell, set.source)} compact /> : null}
                   </div>
                 );
               })}

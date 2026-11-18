@@ -128,8 +128,9 @@ export function removeDrafts(drafts: C.Drafts, setId: string, cells: { lang: str
 /* ---------- Modifications face à main ---------- */
 
 // Ce que main contient aujourd'hui pour la clé d'une cellule (la ligne affichée est lue sur main).
-export const cellNow = (c: Cell): C.MainNow => ({ source: c.source, value: c.exists ? c.value : undefined });
-export const isConflict = (c: Cell) => !!c.draft && C.draftDrift(c.draft, cellNow(c)) === "conflict";
+export const cellNow = (c: Cell, sourceLang: string): C.MainNow =>
+  ({ source: c.source, value: c.exists ? c.value : undefined, isSource: c.lang === sourceLang });
+export const isConflict = (c: Cell, sourceLang: string) => !!c.draft && C.draftDrift(c.draft, cellNow(c, sourceLang)) === "conflict";
 
 export interface DriftedDraft { key: string; draft: C.Draft; now: C.MainNow; drift: C.Drift }
 

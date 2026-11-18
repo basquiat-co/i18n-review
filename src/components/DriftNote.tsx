@@ -8,7 +8,7 @@ const Text = ({ text }: { text: string | undefined }) =>
 
 // Une correction dont main a changé la source ou le texte depuis : ce qui a changé, et le choix d'Alex.
 export function DriftNote({ draftKey, draft, now, compact }: { draftKey: string; draft: Draft; now: MainNow; compact?: boolean }) {
-  const sourceMoved = now.source !== draft.source;
+  const sourceMoved = !now.isSource && now.source !== draft.source;
   const valueMoved = draft.exists ? now.value !== draft.original : now.value !== undefined;
   return (
     <div role="group" aria-label={`Changé sur main : ${draft.id} (${draft.lang})`}

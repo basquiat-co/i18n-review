@@ -493,8 +493,11 @@ export function splitDrafts(drafts: unknown, sets: { id: string; langs: string[]
 // modification garde le texte source et le texte cible qu'elle a vus (source, original) : comparés à main,
 // ils disent si elle porte encore sur le même texte.
 
-/** Ce que main contient aujourd'hui pour la clé d'une modification ; undefined : la clé n'y est pas. */
-export interface MainNow { source: string | undefined; value: string | undefined }
+/**
+ * Ce que main contient aujourd'hui pour la clé d'une modification ; undefined : la clé n'y est pas.
+ * isSource : la modification porte sur la langue source, dont le texte EST la source.
+ */
+export interface MainNow { source: string | undefined; value: string | undefined; isSource?: boolean }
 
 /**
  * same : main n'a pas touché à ce texte.
@@ -507,7 +510,9 @@ export type Drift = "same" | "absorbed" | "dropped-gone" | "dropped-validation" 
 
 export function draftDrift(d: Draft, now: MainNow): Drift {
   if (now.source === undefined) return "dropped-gone";
-  const sourceSame = now.source === d.source;
+  // Dans la langue source, source et texte sont un seul texte : seul le texte compte (sinon une correction que
+  // main contient déjà passerait pour un conflit, la source ayant « changé » de la même façon).
+  const sourceSame = now.isSource || now.source === d.source;
   const valueSame = d.exists ? now.value === d.original : now.value === undefined;
   if (sourceSame && valueSame) return "same";
   if (!d.edited) return "dropped-validation";
@@ -528,5 +533,5 @@ export function mainLookup(sourceLang: string, flat: Record<string, FlatEntry[]>
     if (!maps.has(l)) maps.set(l, toMap(flat[l] || []));
     return maps.get(l)!;
   };
-  return (lang, id) => ({ source: map(sourceLang).get(id)?.value, value: map(lang).get(id)?.value });
+  return (lang, id) => ({ source: map(sourceLang).get(id)?.value, value: map(lang).get(id)?.value, isSource: lang === sourceLang });
 }

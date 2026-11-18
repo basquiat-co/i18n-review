@@ -66,9 +66,9 @@ test("rebaseDraft : une clé encore absente de la langue reste à écrire", () =
 
 test("mainLookup : source et texte de la langue, par clé, y compris dans un objet imbriqué", () => {
   const now = C.mainLookup("fr", { fr: C.flatten({ menu: { open: "Ouvrir" } }), de: C.flatten({ menu: { open: "Öffnen" } }) });
-  assert.deepEqual(now("de", "menu.open"), { source: "Ouvrir", value: "Öffnen" });
-  assert.deepEqual(now("de", "menu.close"), { source: undefined, value: undefined });
-  assert.deepEqual(now("fr", "menu.open"), { source: "Ouvrir", value: "Ouvrir" });
+  assert.deepEqual(now("de", "menu.open"), { source: "Ouvrir", value: "Öffnen", isSource: false });
+  assert.deepEqual(now("de", "menu.close"), { source: undefined, value: undefined, isSource: false });
+  assert.deepEqual(now("fr", "menu.open"), { source: "Ouvrir", value: "Ouvrir", isSource: true });
 });
 
 test("driftedDrafts : toutes les langues d'un jeu chargé, même masquées ; un jeu non chargé est ignoré", () => {
@@ -81,4 +81,11 @@ test("driftedDrafts : toutes les langues d'un jeu chargé, même masquées ; un 
   const out = driftedDrafts(drafts, data);
   assert.deepEqual(out.map(x => [x.key, x.drift]), [["app|de|bye", "conflict"]]);
   assert.deepEqual(driftedDrafts(drafts, data, "app-expo"), []);
+});
+
+test("draftDrift : dans la langue source, main qui contient déjà la correction l'absorbe", () => {
+  const fr = draft({ lang: "fr", value: "Au revoir", original: "Au revior", source: "Au revior" });
+  assert.equal(C.draftDrift(fr, { source: "Au revoir", value: "Au revoir", isSource: true }), "absorbed");
+  assert.equal(C.draftDrift(fr, { source: "Bye", value: "Bye", isSource: true }), "conflict");
+  assert.equal(C.draftDrift(fr, { source: "Au revior", value: "Au revior", isSource: true }), "same");
 });

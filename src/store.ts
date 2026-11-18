@@ -24,7 +24,8 @@ interface AppState {
   orphans: Drafts;
   rawRows: Record<string, true>; // cellules affichées en texte brut plutôt que forme par forme
   notices: Notice[];
-  pr: { open: boolean; mode: PrMode; setId: string; submitting: boolean; checking: boolean; refused: boolean };
+  // checkError : la relecture de main avant l'envoi a échoué (affiché dans la fenêtre, qui cache les messages).
+  pr: { open: boolean; mode: PrMode; setId: string; submitting: boolean; checking: boolean; refused: boolean; checkError: string };
   theme: storage.Theme;
 }
 
@@ -46,7 +47,7 @@ export const useApp = create<AppState>(() => ({
   orphans: storage.loadOrphans(),
   rawRows: {},
   notices: [],
-  pr: { open: false, mode: "drafts", setId: SETS[0].id, submitting: false, checking: false, refused: false },
+  pr: { open: false, mode: "drafts", setId: SETS[0].id, submitting: false, checking: false, refused: false, checkError: "" },
   theme: storage.loadTheme(),
 }));
 
@@ -81,6 +82,7 @@ export async function login(token: string, remember: boolean) {
 export function logout(message?: string) {
   client = null;
   generation++;
+  ticking = false;
   unwatch?.();
   storage.clearToken();
   set({ user: null, data: {}, loginError: message || "", notices: [], pr: { ...get().pr, open: false, submitting: false, checking: false } });
@@ -171,18 +173,31 @@ async function freshen(setId: string) {
 // Les champs ne sont pas contrôlés et sont recréés quand leur texte change : remplacer les données pendant
 // qu'Alex tape dans un champ effacerait sa saisie. On attend qu'il le quitte (sa sortie de champ enregistre la
 // modification, que la comparaison avec main signale ensuite si main a changé ce texte).
+// Le champ peut aussi disparaître sans perdre le focus (bouton « Valider », qui garde le focus dans le champ, puis
+// le recrée) : certains navigateurs n'émettent alors aucun blur, d'où la vérification régulière.
 function untilFieldLeft(): Promise<void> {
   const a = document.activeElement;
   if (!(a instanceof HTMLTextAreaElement) || !a.closest("#rows") || a.value === a.defaultValue) return Promise.resolve();
-  return new Promise(resolve => a.addEventListener("blur", () => setTimeout(resolve, 0), { once: true }));
+  return new Promise(resolve => {
+    const done = () => { clearInterval(poll); a.removeEventListener("blur", onBlur); setTimeout(resolve, 0); };
+    const onBlur = () => done();
+    const poll = window.setInterval(() => { if (!a.isConnected || document.activeElement !== a) done(); }, 500);
+    a.addEventListener("blur", onBlur);
+  });
 }
 
 // Modifications d'un jeu face à main : celle que main contient déjà devient une validation ; celle qui n'a plus
 // d'objet (clé supprimée, validation d'un texte qui a changé) est retirée, avec un message ; un conflit reste,
 // signalé sur la ligne et dans la fenêtre d'envoi.
 function reconcile(setId: string) {
-  const { drafts, data } = get();
-  const drifted = driftedDrafts(drafts, data, setId);
+  const loaded = get().data[setId];
+  // Source absente ou vide sur main (fichier déplacé, en cours de réécriture) : toutes les clés sembleraient
+  // supprimées. On ne touche à rien ; l'envoi le refusera en nommant le fichier.
+  if (!loaded || !loaded.flat[setById(setId).source]?.length) return;
+  // Relu sur l'ordinateur plutôt qu'en mémoire : un autre onglet a pu enregistrer des modifications depuis, et
+  // cette mise à jour en fond ne doit pas les écraser.
+  const drafts = { ...storage.loadDrafts() };
+  const drifted = driftedDrafts(drafts, get().data, setId);
   if (!drifted.some(x => x.drift !== "conflict")) return;
   const next = { ...drafts };
   const dropped: string[] = [];
@@ -264,22 +279,23 @@ export function deleteOrphans() {
 // Pendant la création, le panneau ne peut être ni fermé ni rouvert : un second envoi créerait une PR en double.
 export function openPr(mode: PrMode, setId = get().setId) {
   if (get().pr.submitting) return;
-  set({ pr: { open: true, mode, setId, submitting: false, checking: mode === "drafts", refused: false } });
+  set({ pr: { open: true, mode, setId, submitting: false, checking: mode === "drafts", refused: false, checkError: "" } });
   if (mode === "drafts") void preflight();
 }
 
 // À l'ouverture de la fenêtre d'envoi : chaque jeu qui a des modifications est remis à jour avec main, pour que
 // les conflits s'y affichent avant l'envoi (y compris pour une langue masquée ou un autre jeu).
-async function preflight(fail = true) {
+// Chaque jeu est attendu, même si un autre échoue ; seule la dernière vérification lancée rend la main.
+let preflightSeq = 0;
+async function preflight() {
+  const seq = ++preflightSeq;
   const sets = [...new Set(Object.values(get().drafts).map(d => d.set))];
-  try {
-    await Promise.all(sets.map(freshen));
-  } catch (e) {
-    if ((e as GhError).status === 401) { logout("Le jeton GitHub est refusé (expiré ou révoqué). Colle un nouveau jeton."); return; }
-    if (fail) notify("error", "Impossible de vérifier la branche principale avant l'envoi. " + explain(e) + " L'envoi la vérifiera de toute façon.");
-  } finally {
-    set(s => ({ pr: { ...s.pr, checking: false } }));
-  }
+  const results = await Promise.allSettled(sets.map(freshen));
+  if (seq !== preflightSeq) return;
+  const failed = results.find((r): r is PromiseRejectedResult => r.status === "rejected");
+  if (failed && (failed.reason as GhError).status === 401) { logout("Le jeton GitHub est refusé (expiré ou révoqué). Colle un nouveau jeton."); return; }
+  const checkError = failed ? "Impossible de relire la branche principale : " + explain(failed.reason) : "";
+  set(s => ({ pr: { ...s.pr, checking: false, checkError } }));
 }
 export function closePr() {
   if (get().pr.submitting) return;
@@ -323,7 +339,7 @@ export async function submitPr(title: string, note: string) {
       // (un message hors de la fenêtre serait caché par elle).
       set(s => ({ pr: { ...s.pr, submitting: false, checking: true, refused: true } }));
       done();
-      await preflight(false);
+      await preflight();
       if (results.length) void refresh(true); // un autre dépôt a bien reçu sa PR : ses lignes passent « en attente »
       return;
     }
