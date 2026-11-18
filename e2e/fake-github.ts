@@ -4,7 +4,14 @@ import type { Route } from "@playwright/test";
  * Fausse API GitHub, branchée sur les requêtes du navigateur (context.route) : aucun appel réseau réel.
  * files : "propriétaire/dépôt:chemin" pour la branche principale, "propriétaire/dépôt@sha:chemin" pour un autre commit.
  */
-export interface PullInfo { number: number; ref: string; sha: string; repo?: string; base?: string }
+export interface PullInfo {
+  number: number; ref: string; sha: string; repo?: string; base?: string;
+  baseRef?: string;     // branche visée (« main » par défaut) : la branche d'une autre PR quand elles sont empilées
+  body?: string;
+  merged?: boolean;     // fusionnée : absente de la liste des PR ouvertes
+  mergeAtRead?: number; // devient fusionnée à la n-ième lecture de GET /pulls/{number} (fusion pendant un envoi)
+  reads?: number;
+}
 
 export class FakeGitHub {
   files: Record<string, string> = {};
@@ -18,6 +25,8 @@ export class FakeGitHub {
     commits: [] as { repo: string; body: { message: string; tree: string; parents: string[] } }[],
     refs: [] as { repo: string; body: { ref: string; sha: string } }[],
     pulls: [] as { repo: string; body: { title: string; head: string; base: string; body: string } }[],
+    refUpdates: [] as { repo: string; ref: string; body: { sha: string; force: boolean } }[],
+    pullUpdates: [] as { repo: string; number: number; body: { body: string } }[],
   };
   private n = 0;
 
@@ -50,13 +59,40 @@ export class FakeGitHub {
       return json(404, { message: "Not Found" });
     }
     if ((m = p.match(/^\/repos\/([^/]+\/[^/]+)\/pulls$/)) && method === "GET") {
-      return json(200, (this.pulls[m[1]] || []).map(pr => ({
+      return json(200, (this.pulls[m[1]] || []).filter(pr => !pr.merged).map(pr => ({
         number: pr.number, html_url: `https://github.com/${m![1]}/pull/${pr.number}`,
-        base: { sha: pr.base || "base" },
+        base: { sha: pr.base || "base", ref: pr.baseRef || "main" },
         head: { ref: pr.ref, sha: pr.sha, repo: { full_name: pr.repo || m![1] } },
       })));
     }
-    if ((m = p.match(/^\/repos\/([^/]+\/[^/]+)\/git\/commits\/base$/))) return json(200, { sha: "base", tree: { sha: "tree0" } });
+    if ((m = p.match(/^\/repos\/([^/]+\/[^/]+)\/pulls\/(\d+)$/))) {
+      const pr = (this.pulls[m[1]] || []).find(x => x.number === Number(m![2]));
+      if (!pr) return json(404, { message: "Not Found" });
+      if (method === "PATCH") {
+        const body = JSON.parse(req.postData() || "{}");
+        this.posts.pullUpdates.push({ repo: m[1], number: pr.number, body });
+        pr.body = body.body;
+        return json(200, { number: pr.number });
+      }
+      pr.reads = (pr.reads || 0) + 1;
+      if (pr.mergeAtRead && pr.reads >= pr.mergeAtRead) pr.merged = true;
+      return json(200, {
+        number: pr.number, html_url: `https://github.com/${m[1]}/pull/${pr.number}`,
+        state: pr.merged ? "closed" : "open", merged: !!pr.merged, body: pr.body ?? "",
+        head: { ref: pr.ref, sha: pr.sha },
+      });
+    }
+    if ((m = p.match(/^\/repos\/([^/]+\/[^/]+)\/git\/refs\/heads\/(.+)$/)) && method === "PATCH") {
+      const ref = decodeURIComponent(m[2]);
+      const body = JSON.parse(req.postData() || "{}");
+      this.posts.refUpdates.push({ repo: m[1], ref, body });
+      const pr = (this.pulls[m[1]] || []).find(x => x.ref === ref);
+      if (pr) pr.sha = body.sha;
+      return json(200, { ref: "refs/heads/" + ref, object: { sha: body.sha } });
+    }
+    if ((m = p.match(/^\/repos\/([^/]+\/[^/]+)\/git\/commits\/([^/]+)$/)) && method === "GET") {
+      return json(200, { sha: m[2], tree: { sha: m[2] === "base" ? "tree0" : "tree-" + m[2] } });
+    }
     if ((m = p.match(/^\/repos\/([^/]+\/[^/]+)\/git\/(trees|commits|refs)$/)) && method === "POST") {
       const kind = m[2] as "trees" | "commits" | "refs";
       (this.posts[kind] as { repo: string; body: unknown }[]).push({ repo: m[1], body: JSON.parse(req.postData() || "{}") });

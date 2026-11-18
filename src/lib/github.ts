@@ -17,7 +17,21 @@ export interface SetData {
   pending: Record<string, Map<string, C.PendingInfo>>; // clés déjà validées dans des PR ouvertes par l'outil
 }
 
-export interface CreatedPr { repo: string; url: string; number: number }
+/** PR envoyée : `updated` quand les modifications ont rejoint une PR de l'outil déjà ouverte. */
+export interface CreatedPr { repo: string; url: string; number: number; updated: boolean }
+
+interface PrListItem {
+  number: number; html_url: string; created_at?: string;
+  base: { sha: string; ref?: string };
+  head?: { ref?: string; sha: string; repo?: { full_name: string } };
+}
+interface PrDetail { state: string; merged: boolean; html_url: string; body: string | null; head: { ref: string; sha: string } }
+/** PR ouverte de l'outil qui reçoit le prochain envoi. */
+interface OpenPr { number: number; url: string; branch: string; sha: string; body: string }
+type PrWork = { drafts?: C.Draft[]; initSet?: string };
+
+// GitHub refuse une description de plus de 65 536 caractères.
+const BODY_MAX = 60000;
 
 export function explain(e: unknown, repo?: string): string {
   const err = e as Partial<GhError>;
@@ -97,10 +111,8 @@ export class GitHub {
   private async loadPending(set: FileSet, mainSha: string, mainReview: C.Review) {
     const out: SetData["pending"] = {};
     set.langs.forEach(l => out[l] = new Map());
-    type Pr = { number: number; html_url: string; base: { sha: string }; head?: { ref?: string; sha: string; repo?: { full_name: string } } };
-    let prs: Pr[] = [];
-    try { prs = await this.request<Pr[]>(`/repos/${set.repo}/pulls?state=open&per_page=50`); } catch { return out; }
-    prs = prs.filter(p => p.head?.ref?.startsWith(BRANCH_PREFIX) && p.head.repo?.full_name === set.repo).slice(0, 10);
+    let prs: PrListItem[] = [];
+    try { prs = (await this.toolPrs(set.repo)).slice(0, 10); } catch { return out; }
     // Le fichier pèse plusieurs centaines de Ko : une seule lecture par commit, aucune pour la branche principale déjà lue.
     const reviews = new Map<string, Promise<C.Review | null>>([[mainSha, Promise.resolve(mainReview)]]);
     const reviewAt = (sha: string) => {
@@ -120,10 +132,44 @@ export class GitHub {
     return out;
   }
 
-  /* ---------- Création de la pull request ---------- */
-  // Applique les modifications sur la dernière version de la branche principale, puis crée branche, commit et PR.
-  async createPr(repo: string, title: string, note: string, who: string, { drafts, initSet }: { drafts?: C.Draft[]; initSet?: string }): Promise<CreatedPr> {
-    const head = await this.repoHead(repo);
+  /* ---------- Pull requests ouvertes par l'outil ---------- */
+  private async toolPrs(repo: string): Promise<PrListItem[]> {
+    const prs = await this.request<PrListItem[]>(`/repos/${repo}/pulls?state=open&per_page=50`);
+    return prs.filter(p => p.head?.ref?.startsWith(BRANCH_PREFIX) && p.head.repo?.full_name === repo);
+  }
+
+  // La PR qui reçoit l'envoi : une seule PR ouverte à la fois, sinon deux relectures touchent des lignes voisines
+  // des mêmes fichiers triés et entrent en conflit. Si plusieurs sont empilées (la base de l'une est la branche
+  // d'une autre), c'est le sommet de la pile ; à égalité, la plus récente. L'état est relu sur la PR elle-même :
+  // la liste peut dater, et une PR fusionnée ou fermée ne doit plus rien recevoir.
+  private async openToolPr(repo: string): Promise<OpenPr | null> {
+    const prs = await this.toolPrs(repo);
+    const bases = new Set(prs.map(p => p.base.ref));
+    const tops = prs.filter(p => !bases.has(p.head!.ref));
+    const byRecent = (a: PrListItem, b: PrListItem) => (b.created_at || "").localeCompare(a.created_at || "") || b.number - a.number;
+    for (const p of (tops.length ? tops : prs).sort(byRecent)) {
+      const d = await this.request<PrDetail>(`/repos/${repo}/pulls/${p.number}`);
+      if (d.state === "open" && !d.merged) return { number: p.number, url: d.html_url, branch: d.head.ref, sha: d.head.sha, body: d.body || "" };
+    }
+    return null;
+  }
+
+  /* ---------- Envoi : mise à jour de la PR ouverte, sinon création ---------- */
+  // Un seul nouvel essai : si la PR visée est fusionnée, fermée ou a reçu un commit pendant la préparation,
+  // tout est refait à partir de l'état du moment (une autre PR ouverte, ou une nouvelle branche).
+  async createPr(repo: string, title: string, note: string, who: string, work: PrWork): Promise<CreatedPr> {
+    for (let attempt = 0; attempt < 2; attempt++) {
+      const sent = await this.sendPr(repo, title, note, who, work, await this.openToolPr(repo));
+      if (sent) return sent;
+    }
+    throw new GhError(409, "la pull request ouverte a changé pendant l'envoi. Réessaie dans un instant.");
+  }
+
+  // Applique les modifications sur la tête de la PR ouverte (`target`), ou à défaut sur la dernière version de la
+  // branche principale, puis pousse le commit. Renvoie null si `target` ne peut plus recevoir le commit.
+  private async sendPr(repo: string, title: string, note: string, who: string, { drafts, initSet }: PrWork, target: OpenPr | null): Promise<CreatedPr | null> {
+    const main = await this.repoHead(repo);
+    const head = { branch: main.branch, sha: target ? target.sha : main.sha };
     const commit = await this.request<{ tree: { sha: string } }>(`/repos/${repo}/git/commits/${head.sha}`);
     let review = C.parseReview(await this.getFile(repo, REVIEW_FILE, head.sha));
     const tree: { path: string; mode: string; type: string; content: string }[] = [];
@@ -169,20 +215,39 @@ export class GitHub {
 
     const newTree = await this.request<{ sha: string }>(`/repos/${repo}/git/trees`, { method: "POST", body: { base_tree: commit.tree.sha, tree } });
     const newCommit = await this.request<{ sha: string }>(`/repos/${repo}/git/commits`, { method: "POST", body: { message: title + "\n\nCréé avec l'outil de relecture des traductions par " + who + ".", tree: newTree.sha, parents: [head.sha] } });
+
+    const corrections = drafts ? drafts.filter(d => d.edited) : [];
+    const summary = (table: boolean) => {
+      let text = (note ? note + "\n\n" : "") + "### Résumé\n" + lines.join("\n") + "\n";
+      if (!corrections.length) return text;
+      if (!table) return text + `\n${corrections.length} correction${corrections.length > 1 ? "s" : ""} (voir les fichiers modifiés).\n`;
+      const esc = (s: string) => String(s).replace(/\|/g, "\\|").replace(/\n/g, "<br>");
+      text += "\n### Corrections\n| Clé | Langue | Avant | Après |\n|---|---|---|---|\n" +
+        corrections.slice(0, 80).map(d => `| \`${d.id}\` | ${d.lang} | ${esc(d.original || "_(vide)_")} | ${esc(d.value)} |`).join("\n") + "\n" +
+        (corrections.length > 80 ? `\n… et ${corrections.length - 80} autres corrections (voir les fichiers modifiés).\n` : "");
+      return text;
+    };
+
+    if (target) {
+      // Dernière vérification, juste avant d'écrire : la PR doit être encore ouverte, non fusionnée, et sa branche
+      // au commit sur lequel les modifications viennent d'être appliquées.
+      const now = await this.request<PrDetail>(`/repos/${repo}/pulls/${target.number}`);
+      if (now.state !== "open" || now.merged || now.head.sha !== target.sha) return null;
+      // Sans `force` : GitHub refuse si la branche a encore bougé, plutôt que d'écraser le commit d'un autre.
+      await this.request(`/repos/${repo}/git/refs/heads/${encPath(target.branch)}`, { method: "PATCH", body: { sha: newCommit.sha, force: false } });
+      const day = new Date().toLocaleDateString("fr-CH", { day: "2-digit", month: "2-digit", year: "numeric" });
+      const heading = `\n\n---\n\n## Mise à jour du ${day} par ${who}\n\n`;
+      const added = [summary(true), summary(false)].map(s => heading + s).find(s => target.body.length + s.length <= BODY_MAX);
+      // Le commit est poussé : une description qui ne passe pas ne doit pas faire croire à un envoi raté.
+      if (added) await this.request(`/repos/${repo}/pulls/${target.number}`, { method: "PATCH", body: { body: target.body.trimEnd() + added } }).catch(() => null);
+      return { repo, url: target.url, number: target.number, updated: true };
+    }
+
     const stamp = new Date().toISOString().replace(/[-:T]/g, "").slice(0, 12);
     const branch = `${BRANCH_PREFIX}${stamp}-${Math.random().toString(36).slice(2, 6)}`;
     await this.request(`/repos/${repo}/git/refs`, { method: "POST", body: { ref: "refs/heads/" + branch, sha: newCommit.sha } });
-
-    const corrections = drafts ? drafts.filter(d => d.edited) : [];
-    let body = (note ? note + "\n\n" : "") + "### Résumé\n" + lines.join("\n") + "\n";
-    if (corrections.length) {
-      const esc = (s: string) => String(s).replace(/\|/g, "\\|").replace(/\n/g, "<br>");
-      body += "\n### Corrections\n| Clé | Langue | Avant | Après |\n|---|---|---|---|\n" +
-        corrections.slice(0, 80).map(d => `| \`${d.id}\` | ${d.lang} | ${esc(d.original || "_(vide)_")} | ${esc(d.value)} |`).join("\n") + "\n" +
-        (corrections.length > 80 ? `\n… et ${corrections.length - 80} autres corrections (voir les fichiers modifiés).\n` : "");
-    }
-    body += `\n_Le fichier \`${REVIEW_FILE}\` enregistre les clés relues. Il est mis à jour par l'outil de relecture des traductions._\n`;
+    const body = summary(true) + `\n_Le fichier \`${REVIEW_FILE}\` enregistre les clés relues. Il est mis à jour par l'outil de relecture des traductions._\n`;
     const pr = await this.request<{ html_url: string; number: number }>(`/repos/${repo}/pulls`, { method: "POST", body: { title, head: branch, base: head.branch, body } });
-    return { repo, url: pr.html_url, number: pr.number };
+    return { repo, url: pr.html_url, number: pr.number, updated: false };
   }
 }

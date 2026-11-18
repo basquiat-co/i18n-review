@@ -45,7 +45,7 @@ npm test           # tests unitaires (Vitest)
 npm run test:e2e   # parcours complets dans Chromium (Playwright)
 ```
 
-Les tests de parcours construisent l'application, puis la pilotent dans Chromium avec une **fausse API GitHub** (`e2e/fake-github.ts`) : aucun appel réseau réel. Ils couvrent la connexion, les statuts et les filtres, les corrections, les pluriels, la création de la pull request (contenu exact des fichiers envoyés), le verrou contre les PR en double et les modifications mises de côté. Ils visent l'interface par ses libellés accessibles. `E2E_BASE_URL=http://… npm run test:e2e` les lance contre une autre version déjà servie, par exemple l'ancienne.
+Les tests de parcours construisent l'application, puis la pilotent dans Chromium avec une **fausse API GitHub** (`e2e/fake-github.ts`) : aucun appel réseau réel. Ils couvrent la connexion, les statuts et les filtres, les corrections, les pluriels, la création de la pull request (contenu exact des fichiers envoyés), la mise à jour de la PR déjà ouverte, le verrou contre les PR en double et les modifications mises de côté. Ils visent l'interface par ses libellés accessibles. `E2E_BASE_URL=http://… npm run test:e2e` les lance contre une autre version déjà servie, par exemple l'ancienne.
 
 En local, si Playwright ne trouve pas Chromium : `npx playwright install chromium`.
 
@@ -65,7 +65,7 @@ Sur GitHub Actions, `.github/workflows/tests.yml` lance les trois à chaque pull
 | `src/lib/core.ts` | moteur pur : lecture et réécriture des JSON, variables, pluriels ICU/JSON, statuts, fichier `.i18n-review.json` |
 | `src/lib/rows.ts` | modèle d'affichage : clés, filtres, recherche, règles de correction et de validation |
 | `src/lib/composite.ts` | découpage d'un pluriel écrit dans une seule chaîne en un champ par forme |
-| `src/lib/github.ts` | client GitHub : chargement d'un jeu, PR ouvertes, création de branche, commit et pull request |
+| `src/lib/github.ts` | client GitHub : chargement d'un jeu, PR ouvertes, commit, puis mise à jour de la PR ouverte ou création de branche et de pull request |
 | `src/lib/storage.ts` | stockage local : jeton, modifications en attente, préférences |
 | `src/store.ts` | état de l'application (zustand) et actions |
 | `src/components/` | interface ; `src/components/ui/` contient les composants shadcn |
@@ -78,7 +78,8 @@ Sur GitHub Actions, `.github/workflows/tests.yml` lance les trois à chaque pull
 
 - **Statuts** : *manquante*, *nouvelle* (jamais relue), *source modifiée* (le texte de référence a changé depuis la relecture), *modifiée hors relecture*, *en attente* (validée dans une PR de l'outil pas encore fusionnée), *relue*.
 - **`.i18n-review.json`**, à la racine de chaque dépôt, enregistre pour chaque clé relue l'empreinte du texte source et celle de la traduction. Une clé redevient « à relire » dès que l'un des deux textes change.
-- Les **modifications en attente** sont gardées dans le navigateur jusqu'à la création de la PR. Celles d'un jeu ou d'une langue retirés de `SETS` sont mises de côté et ne sont jamais envoyées.
+- **Une seule pull request ouverte par dépôt.** Les fichiers de traduction et `.i18n-review.json` sont triés, une clé par ligne : deux PR parties chacune de la branche principale touchent des lignes voisines et entrent en conflit. Tant qu'une PR de l'outil (branche `i18n-review/…`) est ouverte, quel qu'en soit l'auteur, l'envoi suivant y ajoute un commit et complète sa description ; si plusieurs sont empilées, c'est celle du sommet de la pile. L'état de la PR est relu juste avant d'écrire : fusionnée, fermée ou modifiée entre-temps, elle n'est pas touchée et l'envoi repart de l'état du moment (une nouvelle PR depuis la branche principale s'il n'en reste aucune d'ouverte).
+- Les **modifications en attente** sont gardées dans le navigateur jusqu'à l'envoi de la PR. Celles d'un jeu ou d'une langue retirés de `SETS` sont mises de côté et ne sont jamais envoyées.
 - Les fichiers sont réécrits avec leur indentation d'origine. Une clé manquante est insérée à sa place, dans l'ordre de la langue source.
 
 ## Sécurité

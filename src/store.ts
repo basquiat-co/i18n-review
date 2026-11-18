@@ -175,7 +175,7 @@ export async function submitPr(title: string, note: string) {
   set({ pr: { ...pr, submitting: true } });
   const who = user ? (user.name || user.login) : "relecture";
   const results: CreatedPr[] = [];
-  const done = () => { for (const r of results) notify("ok", `Pull request créée dans ${r.repo}.`, { href: r.url, text: "Ouvrir la PR #" + r.number }); };
+  const done = () => { for (const r of results) notify("ok", `Pull request ${r.updated ? "mise à jour" : "créée"} dans ${r.repo}.`, { href: r.url, text: "Ouvrir la PR #" + r.number }); };
   try {
     if (pr.mode === "init") {
       results.push(await client.createPr(knownSet(pr.setId).repo, title, note, who, { initSet: pr.setId }));
@@ -195,7 +195,7 @@ export async function submitPr(title: string, note: string) {
   } catch (e) {
     set(s => ({ pr: { ...s.pr, open: false, submitting: false } }));
     done();
-    notify("error", "La pull request n'a pas pu être créée. " + explain(e) + " Tes modifications sont conservées.");
+    notify("error", "La pull request n'a pas pu être envoyée. " + explain(e) + " Tes modifications sont conservées.");
   }
 }
 
