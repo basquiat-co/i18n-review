@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { GitPullRequestArrow, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { setById } from "@/lib/config";
+import { driftedDrafts } from "@/lib/rows";
 import { discardAll, openPr, useApp } from "@/store";
 
 // Barre d'envoi, collée en bas : ce qui partira dans la pull request.
@@ -10,6 +11,8 @@ export function SendBar() {
   const list = Object.values(drafts);
   const edited = list.filter(d => d.edited).length, validated = list.length - edited;
   const repos = new Set(list.map(d => setById(d.set).repo));
+  const data = useApp(s => s.data);
+  const conflicts = driftedDrafts(drafts, data).filter(x => x.drift === "conflict").length;
 
   // « Tout annuler » demande une confirmation pendant 4 secondes.
   const [confirm, setConfirm] = useState(false);
@@ -28,7 +31,8 @@ export function SendBar() {
           <div className="flex min-w-0 flex-col">
             <span id="send-summary" className="text-sm" aria-live="polite">
               {list.length
-                ? <><strong className="font-semibold tabular-nums">{edited}</strong>{` correction${edited > 1 ? "s" : ""} · `}<strong className="font-semibold tabular-nums">{validated}</strong>{` validation${validated > 1 ? "s" : ""} sans changement` + (repos.size > 1 ? ` · ${repos.size} dépôts` : "")}</>
+                ? <><strong className="font-semibold tabular-nums">{edited}</strong>{` correction${edited > 1 ? "s" : ""} · `}<strong className="font-semibold tabular-nums">{validated}</strong>{` validation${validated > 1 ? "s" : ""} sans changement` + (repos.size > 1 ? ` · ${repos.size} dépôts` : "")}
+                  {conflicts ? <> · <strong className="font-semibold text-[color:var(--st-modified)] tabular-nums">{conflicts} à revoir</strong></> : null}</>
                 : <span className="text-muted-foreground">Aucune modification en attente.</span>}
             </span>
             <span className="hidden text-xs text-muted-foreground lg:block">

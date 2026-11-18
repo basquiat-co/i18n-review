@@ -487,3 +487,46 @@ export function splitDrafts(drafts: unknown, sets: { id: string; langs: string[]
   }
   return { kept, orphans };
 }
+
+// ---------- Modifications face à main ----------
+// Alex travaille une fois par semaine ; entre-temps, les développeurs changent des textes sur main. Une
+// modification garde le texte source et le texte cible qu'elle a vus (source, original) : comparés à main,
+// ils disent si elle porte encore sur le même texte.
+
+/** Ce que main contient aujourd'hui pour la clé d'une modification ; undefined : la clé n'y est pas. */
+export interface MainNow { source: string | undefined; value: string | undefined }
+
+/**
+ * same : main n'a pas touché à ce texte.
+ * absorbed : main contient déjà exactement la correction (une autre relecture fusionnée) : elle devient une validation.
+ * dropped : la clé a disparu de la source (gone), ou c'était une simple validation d'un texte qui a changé
+ *   depuis (validation) : il n'y a plus rien à envoyer, garder « ma version » écrirait un texte que personne n'a tapé.
+ * conflict : une correction dont la source ou le texte cible a changé sur main : Alex choisit.
+ */
+export type Drift = "same" | "absorbed" | "dropped-gone" | "dropped-validation" | "conflict";
+
+export function draftDrift(d: Draft, now: MainNow): Drift {
+  if (now.source === undefined) return "dropped-gone";
+  const sourceSame = now.source === d.source;
+  const valueSame = d.exists ? now.value === d.original : now.value === undefined;
+  if (sourceSame && valueSame) return "same";
+  if (!d.edited) return "dropped-validation";
+  if (sourceSame && now.value === d.value) return "absorbed";
+  return "conflict";
+}
+
+/** La modification reposée sur main tel qu'il est : même texte final, comparé au texte actuel de main. */
+export function rebaseDraft(d: Draft, now: MainNow): Draft {
+  const exists = now.value !== undefined;
+  return { ...d, source: now.source ?? d.source, original: now.value ?? "", exists, edited: !exists || d.value !== now.value };
+}
+
+/** Recherche dans les fichiers de main : texte source et texte de chaque langue, par clé. */
+export function mainLookup(sourceLang: string, flat: Record<string, FlatEntry[]>): (lang: string, id: string) => MainNow {
+  const maps = new Map<string, Map<string, FlatEntry>>();
+  const map = (l: string) => {
+    if (!maps.has(l)) maps.set(l, toMap(flat[l] || []));
+    return maps.get(l)!;
+  };
+  return (lang, id) => ({ source: map(sourceLang).get(id)?.value, value: map(lang).get(id)?.value });
+}

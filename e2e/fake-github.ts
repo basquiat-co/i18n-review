@@ -20,6 +20,8 @@ export class FakeGitHub {
   refGone = false;     // la branche a été supprimée (PR fusionnée) : la mise à jour de la ref échoue
   mergeOnMove = false; // la PR est fusionnée juste après la mise à jour de sa branche
   noCommitsBetween = false; // la création de PR répond « No commits between » (rien de nouveau à proposer)
+  mainSha = "base";    // sha actuel de la branche principale (les fichiers « dépôt:chemin » sont les siens)
+  mainStatus = 200;    // si autre que 200, la lecture du sha de main échoue avec ce code
   calls: string[] = [];
   posts = {
     trees: [] as { repo: string; body: { base_tree: string; tree: { path: string; content: string }[] } }[],
@@ -31,6 +33,23 @@ export class FakeGitHub {
     graphql: [] as { query: string; variables: { id: string; method: string } }[],
   };
   private n = 0;
+
+  /**
+   * Un développeur fusionne sur main : nouveau sha, fichiers remplacés ; la comparaison entre l'ancien et le
+   * nouveau sha liste les chemins changés.
+   */
+  moveMain(sha: string, files: Record<string, string>) {
+    const from = this.mainSha;
+    Object.assign(this.files, files);
+    this.compares[sha] = { mergeBase: from, files: Object.keys(files).map(k => k.slice(k.indexOf(":") + 1)) };
+    this.mainSha = sha;
+  }
+
+  /** Requêtes d'écriture reçues (arbres, commits, branches, PR) : aucune quand un envoi est refusé. */
+  writes(): number {
+    const p = this.posts;
+    return p.trees.length + p.commits.length + p.refs.length + p.pulls.length + p.refUpdates.length + p.pullUpdates.length;
+  }
 
   /** Contenu du fichier écrit dans la dernière PR (arbre Git envoyé), ou undefined. */
   written(path: string): string | undefined {
@@ -76,11 +95,13 @@ export class FakeGitHub {
       }
       return json(200, { number: pr.number, state: pr.state || "open", merged: !!pr.merged });
     }
-    if ((m = p.match(/^\/repos\/([^/]+\/[^/]+)\/git\/ref\/heads\/main$/))) return json(200, { object: { sha: "base" } });
+    if ((m = p.match(/^\/repos\/([^/]+\/[^/]+)\/git\/ref\/heads\/main$/))) {
+      return this.mainStatus === 200 ? json(200, { object: { sha: this.mainSha } }) : json(this.mainStatus, { message: "Server Error" });
+    }
     if ((m = p.match(/^\/repos\/([^/]+\/[^/]+)\/contents\/(.+)$/))) {
-      const ref = url.searchParams.get("ref") || "base";
+      const ref = url.searchParams.get("ref") || this.mainSha;
       const path = decodeURIComponent(m[2]);
-      const key = ref === "base" ? `${m[1]}:${path}` : `${m[1]}@${ref}:${path}`;
+      const key = ref === this.mainSha ? `${m[1]}:${path}` : `${m[1]}@${ref}:${path}`;
       if (key in this.files) return route.fulfill({ status: 200, headers: cors, body: this.files[key] });
       return json(404, { message: "Not Found" });
     }
@@ -91,7 +112,7 @@ export class FakeGitHub {
         head: { ref: pr.ref, sha: pr.sha, repo: { full_name: pr.repo || m![1] } },
       })));
     }
-    if ((m = p.match(/^\/repos\/([^/]+\/[^/]+)\/git\/commits\/base$/))) return json(200, { sha: "base", tree: { sha: "tree0" } });
+    if ((m = p.match(/^\/repos\/([^/]+\/[^/]+)\/git\/commits\/([^/]+)$/)) && m[2] === this.mainSha) return json(200, { sha: this.mainSha, tree: { sha: "tree0" } });
     if ((m = p.match(/^\/repos\/([^/]+\/[^/]+)\/git\/(trees|commits|refs)$/)) && method === "POST") {
       const kind = m[2] as "trees" | "commits" | "refs";
       (this.posts[kind] as { repo: string; body: unknown }[]).push({ repo: m[1], body: JSON.parse(req.postData() || "{}") });

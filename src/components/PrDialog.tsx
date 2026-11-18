@@ -5,7 +5,9 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import { DriftNote } from "@/components/DriftNote";
 import { REVIEW_FILE, langName, setById } from "@/lib/config";
+import { driftedDrafts } from "@/lib/rows";
 import { closePr, submitPr, useApp } from "@/store";
 
 export function PrDialog() {
@@ -28,7 +30,11 @@ export function PrDialog() {
 function PrForm() {
   const pr = useApp(s => s.pr);
   const drafts = useApp(s => s.drafts);
+  const data = useApp(s => s.data);
   const list = Object.values(drafts);
+  // Seuls les conflits restent : le reste a été réglé à la relecture de main (validation, retrait).
+  const conflicts = pr.mode === "drafts" ? driftedDrafts(drafts, data).filter(x => x.drift === "conflict") : [];
+  const blocked = pr.submitting || pr.checking || conflicts.length > 0;
   const set = setById(pr.setId);
   const byRepo = [...new Set(list.map(d => setById(d.set).repo))];
   const edited = list.filter(d => d.edited);
@@ -56,6 +62,31 @@ function PrForm() {
         <Label htmlFor="pr-title">Titre</Label>
         <Input id="pr-title" value={title} onChange={e => setTitle(e.target.value)} autoFocus />
       </div>
+
+      {pr.mode === "drafts" && pr.checking ? (
+        <p role="status" className="flex items-center gap-2 text-sm text-muted-foreground"><Loader2 className="size-4 animate-spin" />Comparaison avec la dernière version de la branche principale…</p>
+      ) : null}
+      {pr.refused ? (
+        <p role="alert" className="rounded-lg border border-[color:var(--st-source)] bg-[color:color-mix(in_oklab,var(--st-source)_8%,transparent)] px-3 py-2 text-sm">
+          Rien n'a été envoyé : la branche principale a changé pendant ta relecture. Revois les corrections ci-dessous, puis crée la pull request.
+        </p>
+      ) : null}
+      {conflicts.length ? (
+        <section className="flex flex-col gap-2" aria-labelledby="pr-conflicts">
+          <h3 id="pr-conflicts" className="text-sm font-medium">
+            {conflicts.length} correction{conflicts.length > 1 ? "s" : ""} à revoir avant l'envoi
+          </h3>
+          <p className="text-sm text-muted-foreground">Les développeurs ont changé ces textes sur la branche principale pendant ta relecture. Choisis pour chacun.</p>
+          <div className="flex max-h-72 flex-col gap-2 overflow-auto">
+            {conflicts.map(x => (
+              <div key={x.key} className="flex flex-col gap-1">
+                <span className="font-mono text-xs break-all">{x.draft.id} <span className="uppercase">· {x.draft.lang}</span></span>
+                <DriftNote draftKey={x.key} draft={x.draft} now={x.now} />
+              </div>
+            ))}
+          </div>
+        </section>
+      ) : null}
 
       {pr.mode === "drafts" ? (
         <>
@@ -95,7 +126,7 @@ function PrForm() {
 
       <DialogFooter>
         <Button type="button" variant="outline" disabled={pr.submitting} onClick={closePr}>Fermer</Button>
-        <Button type="submit" disabled={pr.submitting}>
+        <Button type="submit" disabled={blocked}>
           {pr.submitting ? <><Loader2 className="animate-spin" />Création en cours…</> : "Créer la pull request"}
         </Button>
       </DialogFooter>

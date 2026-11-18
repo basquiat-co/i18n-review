@@ -21,9 +21,11 @@ export function Notices() {
   return (
     <div className="flex flex-col gap-2">
       {notices.map(n => (
-        <Alert key={n.id} role={n.kind === "error" ? "alert" : "status"}
-          className={cn("shadow-xs", n.kind === "error" ? "border-destructive/30 bg-destructive/5" : "border-success/30 bg-success/5")}>
-          {n.kind === "error" ? <AlertTriangle className="text-destructive" /> : <CheckCircle2 className="text-success" />}
+        <Alert key={n.id} role={n.kind === "ok" ? "status" : "alert"}
+          className={cn("shadow-xs", n.kind === "error" ? "border-destructive/30 bg-destructive/5" : n.kind === "warn"
+            ? "border-[color:var(--st-source)] bg-[color:color-mix(in_oklab,var(--st-source)_8%,transparent)]" : "border-success/30 bg-success/5")}>
+          {n.kind === "error" ? <AlertTriangle className="text-destructive" /> : n.kind === "warn"
+            ? <AlertTriangle className="text-[color:var(--st-source)]" /> : <CheckCircle2 className="text-success" />}
           <AlertDescription className="flex flex-wrap items-start justify-between gap-x-4 gap-y-1 text-foreground">
             <p>
               {n.text}

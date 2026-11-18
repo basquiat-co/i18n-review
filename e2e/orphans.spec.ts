@@ -1,14 +1,15 @@
 import { test, expect, login, row, summary, createPr, APP, DE_PATH, REVIEW } from "./fixtures";
 
-const draft = (set: string, lang: string, id: string, value: string, edited: boolean) =>
-  ({ set, lang, id, segs: id.split("."), value, original: "", exists: false, source: "x", edited });
+// source : le texte source vu par Alex, celui de main (sinon la modification serait en conflit avec main).
+const draft = (set: string, lang: string, id: string, value: string, edited: boolean, source = "x") =>
+  ({ set, lang, id, segs: id.split("."), value, original: "", exists: false, source, edited });
 
 test("les modifications d'un jeu ou d'une langue retirés sont mises de côté, jamais envoyées", async ({ page, gh }) => {
   await login(page, {
     storage: {
       "i18n-set": "ancien",
       "i18n-drafts": JSON.stringify({
-        "app|de|menu.close": draft("app", "de", "menu.close", "Schließen", true),
+        "app|de|menu.close": draft("app", "de", "menu.close", "Schließen", true, "Fermer"),
         "ancien|de|x": draft("ancien", "de", "x", "Texte d'une correction perdue", true),
         "app|it|bye": draft("app", "it", "bye", "Ciao", false),
       }),

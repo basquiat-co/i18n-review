@@ -24,6 +24,13 @@ export interface CreatedPr {
   notes: string[];    // avertissements : la PR existe, mais quelque chose mérite d'être dit
 }
 
+/** Des modifications portent sur des textes que main a changés depuis : rien n'a été envoyé. */
+export class StaleDraftsError extends Error {
+  constructor(public keys: string[]) {
+    super(`${keys.length} modification${keys.length > 1 ? "s portent" : " porte"} sur des textes changés sur la branche principale depuis.`);
+  }
+}
+
 // PR de l'outil reprise par une nouvelle relecture.
 interface OpenPr { number: number; url: string; body: string; autoMerge: boolean; ref: string; sha: string; mergeBase: string; files: string[] }
 
@@ -89,6 +96,44 @@ export class GitHub {
     return { branch, sha: ref.object.sha };
   }
 
+  /**
+   * main est passé de from à to : un des fichiers relus a-t-il changé ? Dans le doute (liste tronquée à 300
+   * fichiers par GitHub, comparaison impossible), oui : relire coûte quelques requêtes, l'oublier coûte un écran faux.
+   */
+  async touchesReviewed(repo: string, from: string, to: string): Promise<boolean> {
+    try {
+      const c = await this.request<{ files?: { filename: string }[] }>(`/repos/${repo}/compare/${from}...${to}`);
+      const files = c.files || [];
+      if (files.length >= 300) return true;
+      const paths = reviewedPaths(repo);
+      return files.some(f => paths.has(f.filename));
+    } catch (e) {
+      if ((e as GhError).status === 401) throw e;
+      return true;
+    }
+  }
+
+  // Compare chaque modification à main tel qu'il est au moment de l'envoi (pas à la PR reprise, qui porte
+  // les corrections déjà envoyées par Alex). « absorbed » passe : main contient déjà ce texte.
+  private async refuseStale(drafts: C.Draft[], atMain: (path: string) => Promise<string | null>) {
+    const stale: string[] = [];
+    for (const setId of new Set(drafts.map(d => d.set))) {
+      const set = knownSet(setId);
+      const mine = drafts.filter(d => d.set === setId);
+      const flat: Record<string, C.FlatEntry[]> = {};
+      for (const l of new Set([set.source, ...mine.map(d => d.lang)])) {
+        const raw = await atMain(filePath(set, l));
+        flat[l] = C.flatten(parseJson(raw === null ? "{}" : raw, filePath(set, l)));
+      }
+      const now = C.mainLookup(set.source, flat);
+      for (const d of mine) {
+        const drift = C.draftDrift(d, now(d.lang, d.id));
+        if (drift !== "same" && drift !== "absorbed") stale.push(`${d.set}|${d.lang}|${d.id}`);
+      }
+    }
+    if (stale.length) throw new StaleDraftsError(stale);
+  }
+
   /* ---------- Chargement d'un jeu de fichiers ---------- */
   async loadSet(set: FileSet): Promise<SetData> {
     const head = await this.repoHead(set.repo);
@@ -137,8 +182,6 @@ export class GitHub {
   // ou des fichiers ajoutés à la main, des tests par exemple), une nouvelle branche et une nouvelle PR sont créées.
   async createPr(repo: string, title: string, note: string, who: string, { drafts, initSet }: { drafts?: C.Draft[]; initSet?: string }): Promise<CreatedPr> {
     const head = await this.repoHead(repo);
-    const commit = await this.request<{ tree: { sha: string } }>(`/repos/${repo}/git/commits/${head.sha}`);
-    let open = await this.reusablePr(repo, head.sha);
 
     // Fichiers lus sur la branche principale (une lecture par chemin) et contenus à écrire, par chemin.
     const mainRaws = new Map<string, Promise<string | null>>();
@@ -146,6 +189,11 @@ export class GitHub {
       if (!mainRaws.has(path)) mainRaws.set(path, this.getFile(repo, path, head.sha));
       return mainRaws.get(path)!;
     };
+    // Avant toute écriture : une modification dont main a changé le texte depuis n'écrase rien sans qu'Alex l'ait vu.
+    if (drafts) await this.refuseStale(drafts, atMain);
+
+    const commit = await this.request<{ tree: { sha: string } }>(`/repos/${repo}/git/commits/${head.sha}`);
+    let open = await this.reusablePr(repo, head.sha);
     const out = new Map<string, string>();
     const current = async (path: string) => out.has(path) ? out.get(path)! : atMain(path);
 
