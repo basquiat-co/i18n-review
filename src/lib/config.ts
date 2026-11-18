@@ -19,6 +19,7 @@ export const SETS: FileSet[] = [
 ];
 
 export const REVIEW_FILE = ".i18n-review.json";
+export const SUGGESTIONS_DIR = "i18n-suggestions"; // suggestions des développeurs, un fichier .json par branche
 export const BRANCH_PREFIX = "i18n-review/";
 export const API = (globalThis as { I18N_API_BASE?: string }).I18N_API_BASE || "https://api.github.com";
 export const PAGE = 50;
@@ -31,10 +32,12 @@ export const langName = (l: string) => LANG_NAMES[l] || l;
 
 export const filePath = (set: FileSet, lang: string) => set.path.replace("{lang}", lang);
 
-// Fichiers que l'outil écrit dans un dépôt : les traductions de ses jeux et le fichier d'état.
-export function reviewedPaths(repo: string): Set<string> {
-  const paths = SETS.filter(s => s.repo === repo).flatMap(s => s.langs.map(l => filePath(s, l)));
-  return new Set([...paths, REVIEW_FILE]);
+// Fichiers que l'outil écrit dans un dépôt : les traductions de ses jeux, le fichier d'état et les suggestions
+// (qu'il retire une fois réglées).
+export function isReviewedPath(repo: string, path: string): boolean {
+  if (path === REVIEW_FILE) return true;
+  if (path.startsWith(SUGGESTIONS_DIR + "/") && path.endsWith(".json") && !path.slice(SUGGESTIONS_DIR.length + 1).includes("/")) return true;
+  return SETS.some(s => s.repo === repo && s.langs.some(l => filePath(s, l) === path));
 }
 
 // findSet est strict (undefined si le jeu n'existe plus) ; setById retombe sur le premier jeu, pour l'affichage seulement.

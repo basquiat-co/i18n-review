@@ -2,7 +2,7 @@ import { test } from "vitest";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
-import { LANG_NAMES, REVIEW_FILE, SETS, reviewedPaths } from "../src/lib/config";
+import { LANG_NAMES, REVIEW_FILE, SETS, isReviewedPath } from "../src/lib/config";
 
 test("SETS : configuration cohérente", () => {
   assert.ok(SETS.length > 0);
@@ -34,10 +34,13 @@ test("composants : cn() vient de @/lib/utils, jamais du paquet npm « cn »", ()
   }
 });
 
-test("reviewedPaths : les traductions de tous les jeux du dépôt et le fichier d'état", () => {
-  const paths = reviewedPaths("basquiat-co/basquiat-app");
-  assert.ok(paths.has(REVIEW_FILE));
-  assert.ok(paths.has("app/i18n/fr/app.json") && paths.has("app/i18n/de/expo.json"));
-  assert.ok(!paths.has("service_bff/src/locales/fr.json"), "un autre dépôt");
-  assert.ok(!paths.has("app/i18n/en/app.json"), "une langue non configurée");
+test("isReviewedPath : les traductions des jeux du dépôt, le fichier d'état et les suggestions", () => {
+  const app = (p: string) => isReviewedPath("basquiat-co/basquiat-app", p);
+  assert.ok(app(REVIEW_FILE));
+  assert.ok(app("app/i18n/fr/app.json") && app("app/i18n/de/expo.json"));
+  assert.ok(app("i18n-suggestions/fix-team-label.json"));
+  assert.ok(!app("i18n-suggestions/README.md"), "seuls les fichiers de suggestions");
+  assert.ok(!app("i18n-suggestions/sub/x.json"), "pas de sous-dossier");
+  assert.ok(!app("service_bff/src/locales/fr.json"), "un autre dépôt");
+  assert.ok(!app("app/i18n/en/app.json"), "une langue non configurée");
 });

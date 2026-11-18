@@ -3,7 +3,7 @@ import { Loader2 } from "lucide-react";
 import { Header } from "@/components/Header";
 import { KeyList, KeyListSkeleton } from "@/components/KeyList";
 import { LoginScreen } from "@/components/LoginScreen";
-import { InitNotice, Notices, OrphanNotice } from "@/components/Notices";
+import { InitNotice, Notices, OrphanNotice, OrphanSuggestions } from "@/components/Notices";
 import { Overview } from "@/components/Overview";
 import { PrDialog } from "@/components/PrDialog";
 import { SendBar } from "@/components/SendBar";
@@ -12,13 +12,14 @@ import { BrandMark } from "@/components/Brand";
 import { useApplyTheme } from "@/hooks/use-theme";
 import { reviewEntries } from "@/lib/core";
 import { STATUS_INFO, filePath, setById } from "@/lib/config";
-import { activeLangs, buildUnits, canValidateRow, currentKeys, filterCounts, unitCells } from "@/lib/rows";
+import { activeLangs, buildUnits, canValidateRow, currentKeys, filterCounts, orphanSuggestions, settledKey, unitCells } from "@/lib/rows";
 import { autoLogin, useApp, validate } from "@/store";
 
 function Workspace() {
   const setId = useApp(s => s.setId);
   const data = useApp(s => s.data[s.setId]);
   const drafts = useApp(s => s.drafts);
+  const settled = useApp(s => s.settled);
   const prefs = useApp(s => s.langPrefs);
   const filter = useApp(s => s.filter);
   const search = useApp(s => s.search);
@@ -31,7 +32,8 @@ function Workspace() {
     const showSource = !langs.includes(set.source);
     return { set, langs, showSource, cols: langs.length + (showSource ? 1 : 0) };
   }, [set, langs]);
-  const keys = useMemo(() => (data ? currentKeys(set, data, langs, drafts) : []), [set, data, langs, drafts]);
+  const keys = useMemo(() => (data ? currentKeys(set, data, langs, drafts, settled) : []), [set, data, langs, drafts, settled]);
+  const orphans = useMemo(() => (data ? orphanSuggestions(set, data).filter(s => !settled[settledKey({ repo: set.repo, ...s })]) : []), [set, data, settled]);
   const counts = useMemo(() => filterCounts(keys, STATUS_INFO.map(s => s.key)), [keys]);
   const units = useMemo(() => buildUnits(keys, filter, search), [keys, filter, search]);
 
@@ -46,6 +48,7 @@ function Workspace() {
         <OrphanNotice />
         <Notices />
         {needsInit ? <InitNotice /> : null}
+        {orphans.length ? <OrphanSuggestions items={orphans} /> : null}
         {data ? (
           <>
             <Overview counts={counts} langs={langs} />

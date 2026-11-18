@@ -4,7 +4,8 @@ import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { cn } from "@/lib/utils";
-import { deleteOrphans, dismissNotice, openPr, useApp } from "@/store";
+import type { Suggestion } from "@/lib/github";
+import { deleteOrphans, dismissNotice, openPr, setAside, useApp } from "@/store";
 
 function CloseButton({ onClick }: { onClick: () => void }) {
   return (
@@ -113,6 +114,23 @@ export function OrphanNotice() {
             </CollapsibleContent>
           </Collapsible>
         ) : null}
+      </AlertDescription>
+    </Alert>
+  );
+}
+
+// Suggestions dont la clé n'existe plus sur la branche principale : aucune ligne ne peut les montrer.
+export function OrphanSuggestions({ items }: { items: Suggestion[] }) {
+  const n = items.length;
+  return (
+    <Alert role="status" className="border-dashed shadow-xs">
+      <Info />
+      <AlertDescription className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 text-foreground">
+        <p>
+          {n} suggestion{n > 1 ? "s portent" : " porte"} sur {n > 1 ? "des clés qui n'existent" : "une clé qui n'existe"} plus
+          ({items.slice(0, 5).map(s => s.key).join(", ")}{n > 5 ? "…" : ""}).
+        </p>
+        <Button size="sm" variant="outline" className="bg-card" onClick={() => items.forEach(setAside)}>{n > 1 ? "Les mettre de côté" : "La mettre de côté"}</Button>
       </AlertDescription>
     </Alert>
   );

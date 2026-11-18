@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button";
 import { AutoTextarea, focusNext } from "@/components/AutoTextarea";
 import { DraftBadge, PendingLink, StatusBadge } from "@/components/StatusBadge";
 import { DriftNote } from "@/components/DriftNote";
+import { SuggestionCard } from "@/components/SuggestionCard";
 import * as C from "@/lib/core";
 import { FORM_LABEL, langName, type FileSet } from "@/lib/config";
 import { compositeOf, isSplittable } from "@/lib/composite";
@@ -141,6 +142,7 @@ export function KeyRow({ k, layout }: { k: Key; layout: Layout }) {
       </div>
       {layout.showSource ? <SourceCell k={k} set={layout.set} /> : null}
       {k.cells.map(c => <LangCell key={c.lang} cell={c} set={layout.set} />)}
+      {k.suggestions.map(s => <SuggestionCard key={s.item.file + "|" + s.item.key} s={s} />)}
     </div>
   );
 }
@@ -168,6 +170,7 @@ export function PluralGroup({ groupId, keys, layout }: { groupId: string; keys: 
         <KeyPath segs={keys[0].segs.slice(0, -1)} id={groupId} />
         <KeyMeta cells={allCells} tag={`Pluriel · ${keys.length} formes`} />
       </div>
+      {keys.flatMap(k => k.suggestions).map(s => <SuggestionCard key={s.item.file + "|" + s.item.key} s={s} />)}
       <div className="forms-grid">
         {keys.map(k => {
           const formLabel = FORM_LABEL[k.form!] || k.form!;

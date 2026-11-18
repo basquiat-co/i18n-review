@@ -1,5 +1,6 @@
 import { splitDrafts, type Drafts } from "./core";
 import { SETS } from "./config";
+import type { Settled } from "./github";
 
 /* Stockage local : confort uniquement, chaque accès peut échouer (navigation privée, stockage bloqué). */
 type Kind = "local" | "session";
@@ -33,6 +34,12 @@ export function loadDrafts(): Drafts {
 export const saveDrafts = (drafts: Drafts) => sset("i18n-drafts", JSON.stringify(drafts));
 export const loadOrphans = (): Drafts => sjson<Drafts>("i18n-drafts-orphans", {});
 export const clearOrphans = () => sset("i18n-drafts-orphans", null);
+
+/* ---------- Suggestions réglées ---------- */
+// Décisions de la traductrice sur les suggestions des développeurs, jusqu'à leur envoi (la PR les porte ensuite).
+export type SettledState = Record<string, Settled>;
+export const loadSettled = (): SettledState => sjson<SettledState>("i18n-suggestions-settled", {});
+export const saveSettled = (s: SettledState) => sset("i18n-suggestions-settled", Object.keys(s).length ? JSON.stringify(s) : null);
 
 /* ---------- Préférences ---------- */
 export const loadSetId = () => sget("i18n-set");

@@ -1,5 +1,5 @@
 import * as C from "./core";
-import { API, BRANCH_PREFIX, REVIEW_FILE, SETS, filePath, knownSet, langName, reviewedPaths, type FileSet } from "./config";
+import { API, BRANCH_PREFIX, REVIEW_FILE, SETS, SUGGESTIONS_DIR, filePath, isReviewedPath, knownSet, langName, type FileSet } from "./config";
 
 export class GhError extends Error {
   status: number;
@@ -15,7 +15,18 @@ export interface SetData {
   flat: Record<string, C.FlatEntry[]>;
   review: C.Review;
   pending: Record<string, Map<string, C.PendingInfo>>; // clés déjà validées dans des PR ouvertes par l'outil
+  suggestions: Suggestion[];                          // suggestions des développeurs pour ce jeu, sur main
 }
+
+/** Une suggestion d'un développeur, telle que lue sur main, avec la PR qui l'a apportée (si on la retrouve). */
+export interface Suggestion extends C.SuggestionItem {
+  file: string; author: string;
+  pr: { number: number; url: string } | null;      // la PR du développeur qui l'a apportée
+  pending: { number: number; url: string } | null; // une PR de l'outil ouverte qui la retire (réglée, pas encore fusionnée)
+}
+
+/** Une suggestion réglée par la traductrice, pas encore envoyée : reprise dans sa relecture, ou mise de côté. */
+export interface Settled { repo: string; file: string; catalog: string; key: string; decision: "taken" | "aside" }
 
 export interface CreatedPr {
   repo: string; url: string; number: number;
@@ -31,10 +42,15 @@ export class StaleDraftsError extends Error {
   }
 }
 
+// PR de l'outil ouverte, telle que la liste les renvoie.
+type ToolPr = { number: number; html_url: string; base: { sha: string }; head?: { ref?: string; sha: string; repo?: { full_name: string } } };
+
 // PR de l'outil reprise par une nouvelle relecture.
 interface OpenPr { number: number; url: string; body: string; autoMerge: boolean; ref: string; sha: string; mergeBase: string; files: string[] }
 
-// Signature des commits de l'outil : une PR dont un commit ne la porte pas a été modifiée à la main.
+// Signature des commits de l'outil : une PR dont un commit ne la porte pas a été modifiée à la main. Recopiée dans
+// la vérification des dépôts (lift-agentic-service : service_bff/scripts/i18n-guard.ts, TOOL_MARK) : ne pas la
+// changer sans elle.
 const TOOL_MARK = "Créé avec l'outil de relecture des traductions";
 
 export function explain(e: unknown, repo?: string): string {
@@ -105,8 +121,7 @@ export class GitHub {
       const c = await this.request<{ files?: { filename: string }[] }>(`/repos/${repo}/compare/${from}...${to}`);
       const files = c.files || [];
       if (files.length >= 300) return true;
-      const paths = reviewedPaths(repo);
-      return files.some(f => paths.has(f.filename));
+      return files.some(f => isReviewedPath(repo, f.filename));
     } catch (e) {
       if ((e as GhError).status === 401) throw e;
       return true;
@@ -148,19 +163,80 @@ export class GitHub {
     let review: C.Review;
     try { review = C.parseReview(reviewRaw); }
     catch (e) { throw new Error(`Le fichier ${REVIEW_FILE} n'est pas un JSON valide (${(e as Error).message}).`); }
-    const pending = await this.loadPending(set, head.sha, review);
-    return { sha: head.sha, branch: head.branch, flat, review, pending };
+    const prs = await this.toolPrs(set.repo);
+    const [pending, suggestions] = await Promise.all([this.loadPending(set, head.sha, review, prs), this.loadSuggestions(set, head.sha, prs)]);
+    return { sha: head.sha, branch: head.branch, flat, review, pending, suggestions };
+  }
+
+  // Suggestions de ce jeu sur main : un fichier par branche dans i18n-suggestions/. Un fichier illisible est ignoré
+  // (la vérification du dépôt le refuse déjà) ; sans dossier, aucune suggestion.
+  private async loadSuggestions(set: FileSet, sha: string, prs: ToolPr[]): Promise<Suggestion[]> {
+    type Entry = { name: string; path: string; type: string };
+    let entries: Entry[];
+    try { entries = await this.request<Entry[]>(`/repos/${set.repo}/contents/${SUGGESTIONS_DIR}?ref=${encodeURIComponent(sha)}`); }
+    catch (e) { if ((e as GhError).status === 404) return []; throw e; }
+    if (!Array.isArray(entries)) return [];
+    const files = entries.filter(e => e.type === "file" && e.name.endsWith(".json"));
+    const lists = await Promise.all(files.map(async f => {
+      const parsed = C.parseSuggestions(await this.getFile(set.repo, f.path, sha));
+      const items = parsed ? parsed.items.filter(it => it.catalog === set.path) : [];
+      if (!items.length) return [];
+      const [pr, removed] = await Promise.all([this.prOf(set.repo, f.path, sha), this.removedByOpenPrs(set.repo, f.path, sha, prs)]);
+      return items.map(it => ({ ...it, file: f.path, author: parsed!.author, pr, pending: removed.get(C.suggestionId(it)) ?? null }));
+    }));
+    return lists.flat();
+  }
+
+  // Suggestions qu'une PR de l'outil ouverte retire de ce fichier : réglées, en attente de fusion. Une PR fermée sans
+  // fusion ne compte plus : ses suggestions redeviennent à régler. Comparée à sa base commune avec main, pas à
+  // base.sha (fixé à sa création) : un fichier apparu sur main depuis, et que la PR reprise a vidé, y figure.
+  private mergeBases = new Map<string, Promise<string | null>>();
+  private async removedByOpenPrs(repo: string, path: string, mainSha: string, prs: ToolPr[]) {
+    const out = new Map<string, { number: number; url: string }>();
+    await Promise.all(prs.map(async p => {
+      const key = `${repo}:${mainSha}...${p.head!.sha}`;
+      if (!this.mergeBases.has(key)) {
+        this.mergeBases.set(key, this.request<{ merge_base_commit: { sha: string } }>(`/repos/${repo}/compare/${mainSha}...${p.head!.sha}`)
+          .then(c => c.merge_base_commit.sha, () => { this.mergeBases.delete(key); return null; }));
+      }
+      const base = await this.mergeBases.get(key)!;
+      if (!base) return;
+      const [before, head] = await Promise.all([this.getFile(repo, path, base), this.getFile(repo, path, p.head!.sha)]).catch(() => [null, null]);
+      for (const id of C.settledBetween(before, head)) out.set(id, { number: p.number, url: p.html_url });
+    }));
+    return out;
+  }
+
+  // Les PR de l'outil ouvertes sur ce dépôt (10 au plus). En cas d'échec, aucune : rien n'est marqué en attente.
+  private async toolPrs(repo: string): Promise<ToolPr[]> {
+    try {
+      const prs = await this.request<ToolPr[]>(`/repos/${repo}/pulls?state=open&per_page=50`);
+      return prs.filter(p => p.head?.ref?.startsWith(BRANCH_PREFIX) && p.head.repo?.full_name === repo).slice(0, 10);
+    } catch { return []; }
+  }
+
+  // La PR qui a ajouté un fichier : son premier commit, puis la PR qui le contient. Une fois trouvée, elle ne change
+  // plus (le fichier n'est écrit qu'une fois par sa branche) : gardée en mémoire. Un échec n'est pas gardé.
+  private prCache = new Map<string, Promise<{ number: number; url: string } | null>>();
+  private prOf(repo: string, path: string, sha: string) {
+    const key = repo + ":" + path;
+    if (!this.prCache.has(key)) {
+      this.prCache.set(key, (async () => {
+        const commits = await this.request<{ sha: string }[]>(`/repos/${repo}/commits?path=${encodeURIComponent(path)}&sha=${encodeURIComponent(sha)}&per_page=100`);
+        const first = commits.at(-1);
+        if (!first) return null;
+        const prs = await this.request<{ number: number; html_url: string }[]>(`/repos/${repo}/commits/${first.sha}/pulls`);
+        return prs[0] ? { number: prs[0].number, url: prs[0].html_url } : null;
+      })().catch(() => { this.prCache.delete(key); return null; }));
+    }
+    return this.prCache.get(key)!;
   }
 
   // Clés validées dans des pull requests ouvertes par l'outil : chaque PR est comparée à sa propre base
   // (base.sha, fixée à sa création), pas à la branche principale actuelle qui a pu avancer depuis.
-  private async loadPending(set: FileSet, mainSha: string, mainReview: C.Review) {
+  private async loadPending(set: FileSet, mainSha: string, mainReview: C.Review, prs: ToolPr[]) {
     const out: SetData["pending"] = {};
     set.langs.forEach(l => out[l] = new Map());
-    type Pr = { number: number; html_url: string; base: { sha: string }; head?: { ref?: string; sha: string; repo?: { full_name: string } } };
-    let prs: Pr[] = [];
-    try { prs = await this.request<Pr[]>(`/repos/${set.repo}/pulls?state=open&per_page=50`); } catch { return out; }
-    prs = prs.filter(p => p.head?.ref?.startsWith(BRANCH_PREFIX) && p.head.repo?.full_name === set.repo).slice(0, 10);
     // Le fichier pèse plusieurs centaines de Ko : une seule lecture par commit, aucune pour la branche principale déjà lue.
     const reviews = new Map<string, Promise<C.Review | null>>([[mainSha, Promise.resolve(mainReview)]]);
     const reviewAt = (sha: string) => {
@@ -184,7 +260,7 @@ export class GitHub {
   // Une seule PR de l'outil ouverte par dépôt : si une PR ouverte ne contient que des fichiers relus, elle est
   // reconstruite sur la dernière version de la branche principale et la relecture y est ajoutée. Sinon (aucune PR,
   // ou des fichiers ajoutés à la main, des tests par exemple), une nouvelle branche et une nouvelle PR sont créées.
-  async createPr(repo: string, title: string, note: string, who: string, { drafts, initSet }: { drafts?: C.Draft[]; initSet?: string }): Promise<CreatedPr> {
+  async createPr(repo: string, title: string, note: string, who: string, { drafts, initSet, settled = [] }: { drafts?: C.Draft[]; initSet?: string; settled?: Settled[] }): Promise<CreatedPr> {
     const head = await this.repoHead(repo);
 
     // Fichiers lus sur la branche principale (une lecture par chemin) et contenus à écrire, par chemin.
@@ -198,7 +274,7 @@ export class GitHub {
 
     const commit = await this.request<{ tree: { sha: string } }>(`/repos/${repo}/git/commits/${head.sha}`);
     let open = await this.reusablePr(repo, head.sha);
-    const out = new Map<string, string>();
+    const out = new Map<string, string | null>(); // null : fichier supprimé (fichier de suggestions vidé)
     const current = async (path: string) => out.has(path) ? out.get(path)! : atMain(path);
 
     const mainReview = C.parseReview(await atMain(REVIEW_FILE));
@@ -257,9 +333,28 @@ export class GitHub {
         lines.push(`- **${set.label}**, ${langName(lang)} (\`${path}\`) : ${ed} correction${ed > 1 ? "s" : ""}, ${ld.length - ed} validation${ld.length - ed > 1 ? "s" : ""} sans changement.`);
       }
     }
+    // Suggestions réglées : retirées de leur fichier (sur la version déjà rejouée, s'il y en a une), qui disparaît vide.
+    const byFile = new Map<string, Settled[]>();
+    for (const x of settled.filter(x => x.repo === repo)) byFile.set(x.file, [...(byFile.get(x.file) || []), x]);
+    const settledLines: string[] = [];
+    for (const [file, list] of byFile) {
+      const raw = await current(file);
+      if (raw === null) continue;
+      const next = C.removeSuggestions(raw, new Set(list.map(C.suggestionId)));
+      if (next === raw) continue;
+      out.set(file, next);
+      for (const x of list) settledLines.push(`- \`${x.key}\` (\`${file}\`) : ${x.decision === "taken" ? "reprise dans la relecture" : "mise de côté"}`);
+    }
+    if (settledLines.length) lines.push(`- **Suggestions des développeurs** : ${settledLines.length} réglée${settledLines.length > 1 ? "s" : ""}.\n` + settledLines.map(l => "  " + l).join("\n"));
+    // Rien que des suggestions déjà retirées de main (vue pas encore rafraîchie) : rien à proposer, aucune écriture.
+    if (!initSet && !drafts?.length && !settledLines.length && !open) {
+      throw new Error("Rien à envoyer : ces suggestions ne sont plus sur la branche principale. La page a été remise à jour.");
+    }
     out.set(REVIEW_FILE, C.serializeReview(review));
 
-    const tree = [...out].map(([path, content]) => ({ path, mode: "100644", type: "blob", content }));
+    const tree = [...out].map(([path, content]) => content === null
+      ? { path, mode: "100644", type: "blob", sha: null }
+      : { path, mode: "100644", type: "blob", content });
     const newTree = await this.request<{ sha: string }>(`/repos/${repo}/git/trees`, { method: "POST", body: { base_tree: commit.tree.sha, tree } });
     // Une PR reprise reçoit un commit de fusion (sa dernière version, puis la branche principale) : pas de réécriture
     // de son historique, et GitHub la voit à jour.
@@ -314,7 +409,6 @@ export class GitHub {
     const prs = (await this.request<Pr[]>(`/repos/${repo}/pulls?state=open&per_page=50`))
       .filter(p => p.head?.ref?.startsWith(BRANCH_PREFIX) && p.head.repo?.full_name === repo)
       .sort((a, b) => b.number - a.number);
-    const allowed = reviewedPaths(repo);
     for (const p of prs) {
       type Cmp = { merge_base_commit: { sha: string }; total_commits?: number; commits?: { commit: { message: string } }[]; files?: { filename: string }[] };
       const cmp = await this.request<Cmp>(`/repos/${repo}/compare/${mainSha}...${p.head!.sha}`);
@@ -322,7 +416,7 @@ export class GitHub {
       const commits = cmp.commits || [];
       // GitHub tronque les listes (250 commits, 300 fichiers) : une PR aussi grande n'est pas une PR de l'outil seul.
       if (files.length >= 300 || (cmp.total_commits ?? commits.length) !== commits.length) continue;
-      if (!files.every(f => allowed.has(f)) || !commits.every(c => c.commit.message.includes(TOOL_MARK))) continue;
+      if (!files.every(f => isReviewedPath(repo, f)) || !commits.every(c => c.commit.message.includes(TOOL_MARK))) continue;
       return { number: p.number, url: p.html_url, body: p.body || "", autoMerge: !!p.auto_merge, ref: p.head!.ref!, sha: p.head!.sha, mergeBase: cmp.merge_base_commit.sha, files };
     }
     return null;
@@ -330,7 +424,7 @@ export class GitHub {
 
   // Rejoue sur la branche principale ce que la PR a écrit (out reçoit les fichiers changés) et renvoie l'état de
   // relecture obtenu, avec les clés en conflit (« clé (langue) »).
-  private async replayPr(repo: string, open: OpenPr, mainReview: C.Review, atMain: (path: string) => Promise<string | null>, out: Map<string, string>) {
+  private async replayPr(repo: string, open: OpenPr, mainReview: C.Review, atMain: (path: string) => Promise<string | null>, out: Map<string, string | null>) {
     const at = (path: string, sha: string) => this.getFile(repo, path, sha);
     const skip = new Set<string>();
     const clashes: string[] = [];
@@ -356,6 +450,13 @@ export class GitHub {
         out.set(path, after);
         if (lang === set.source) sourceObj = JSON.parse(after);
       }
+    }
+    // Suggestions que la PR avait réglées : retirées à nouveau de la version de main (où d'autres ont pu s'ajouter).
+    for (const path of open.files.filter(f => f.startsWith(SUGGESTIONS_DIR + "/"))) {
+      const [baseRaw, headRaw, mainRaw] = await Promise.all([at(path, open.mergeBase), at(path, open.sha), atMain(path)]);
+      if (mainRaw === null) continue;
+      const next = C.removeSuggestions(mainRaw, C.settledBetween(baseRaw, headRaw));
+      if (next !== mainRaw) out.set(path, next);
     }
     let review = mainReview;
     if (open.files.includes(REVIEW_FILE)) {
