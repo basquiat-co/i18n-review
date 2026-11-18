@@ -144,7 +144,9 @@ export function driftedDrafts(drafts: C.Drafts, data: Record<string, SetData | u
   for (const [key, d] of Object.entries(drafts)) {
     if (setId && d.set !== setId) continue;
     const loaded = data[d.set];
-    if (!loaded) continue;
+    // Fichier source ou de la langue absent ou vide sur main (déplacé, en cours de réécriture) : comparer dirait
+    // que tout a été supprimé. Rien n'est conclu ; l'envoi le refuse en nommant le fichier.
+    if (!loaded || !loaded.flat[knownSet(d.set).source]?.length || (d.exists && !loaded.flat[d.lang]?.length)) continue;
     if (!lookups.has(d.set)) lookups.set(d.set, C.mainLookup(knownSet(d.set).source, loaded.flat));
     const now = lookups.get(d.set)!(d.lang, d.id);
     const drift = C.draftDrift(d, now);

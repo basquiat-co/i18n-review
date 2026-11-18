@@ -198,17 +198,17 @@ function reconcile(setId: string) {
   // cette mise à jour en fond ne doit pas les écraser.
   const drafts = { ...storage.loadDrafts() };
   const drifted = driftedDrafts(drafts, get().data, setId);
-  if (!drifted.some(x => x.drift !== "conflict")) return;
+  if (!drifted.some(x => x.drift === "absorbed" || x.drift.startsWith("dropped"))) return;
   const next = { ...drafts };
   const dropped: string[] = [];
   for (const x of drifted) {
     if (x.drift === "absorbed") next[x.key] = rebaseDraft(x.draft, x.now);
-    else if (x.drift !== "conflict") { delete next[x.key]; dropped.push(`${x.draft.id} (${x.draft.lang})`); }
+    else if (x.drift.startsWith("dropped")) { delete next[x.key]; dropped.push(`${x.draft.id} (${x.draft.lang})`); }
   }
   saveDrafts(next);
   if (dropped.length) {
     const n = dropped.length, list = dropped.slice(0, 5).join(", ") + (n > 5 ? `, et ${n - 5} autre${n > 6 ? "s" : ""}` : "");
-    notify("warn", `${n} modification${n > 1 ? "s retirées" : " retirée"} : la branche principale a supprimé la clé, ou changé le texte que tu avais validé tel quel (${list}). Relis ${n > 1 ? "ces lignes" : "cette ligne"} si besoin.`);
+    notify("warn", `${n} validation${n > 1 ? "s retirées" : " retirée"} : la branche principale a supprimé la clé, ou changé le texte que tu avais validé tel quel (${list}). Relis ${n > 1 ? "ces lignes" : "cette ligne"} si besoin.`);
   }
 }
 

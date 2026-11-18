@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { GitPullRequestArrow, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { setById } from "@/lib/config";
+import { needsChoice } from "@/lib/core";
 import { driftedDrafts } from "@/lib/rows";
 import { discardAll, openPr, useApp } from "@/store";
 
@@ -12,7 +13,7 @@ export function SendBar() {
   const edited = list.filter(d => d.edited).length, validated = list.length - edited;
   const repos = new Set(list.map(d => setById(d.set).repo));
   const data = useApp(s => s.data);
-  const conflicts = driftedDrafts(drafts, data).filter(x => x.drift === "conflict").length;
+  const conflicts = driftedDrafts(drafts, data).filter(x => needsChoice(x.drift)).length;
 
   // « Tout annuler » demande une confirmation pendant 4 secondes.
   const [confirm, setConfirm] = useState(false);

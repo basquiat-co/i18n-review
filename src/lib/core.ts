@@ -502,14 +502,19 @@ export interface MainNow { source: string | undefined; value: string | undefined
 /**
  * same : main n'a pas touché à ce texte.
  * absorbed : main contient déjà exactement la correction (une autre relecture fusionnée) : elle devient une validation.
- * dropped : la clé a disparu de la source (gone), ou c'était une simple validation d'un texte qui a changé
- *   depuis (validation) : il n'y a plus rien à envoyer, garder « ma version » écrirait un texte que personne n'a tapé.
+ * dropped : une simple validation (rien de tapé) dont la clé a disparu de la source (gone) ou dont le texte a
+ *   changé depuis (validation) : il n'y a plus rien à envoyer, garder « ma version » écrirait un texte que
+ *   personne n'a tapé. C'est la seule modification retirée sans qu'Alex le demande.
+ * gone : une correction tapée par Alex sur une clé que main a supprimée : gardée, montrée, Alex la retire.
  * conflict : une correction dont la source ou le texte cible a changé sur main : Alex choisit.
  */
-export type Drift = "same" | "absorbed" | "dropped-gone" | "dropped-validation" | "conflict";
+export type Drift = "same" | "absorbed" | "dropped-gone" | "dropped-validation" | "gone" | "conflict";
+
+/** Ce qui bloque l'envoi jusqu'à ce qu'Alex tranche. */
+export const needsChoice = (drift: Drift) => drift === "conflict" || drift === "gone";
 
 export function draftDrift(d: Draft, now: MainNow): Drift {
-  if (now.source === undefined) return "dropped-gone";
+  if (now.source === undefined) return d.edited ? "gone" : "dropped-gone";
   // Dans la langue source, source et texte sont un seul texte : seul le texte compte (sinon une correction que
   // main contient déjà passerait pour un conflit, la source ayant « changé » de la même façon).
   const sourceSame = now.isSource || now.source === d.source;

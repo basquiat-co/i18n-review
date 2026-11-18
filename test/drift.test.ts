@@ -18,8 +18,11 @@ test("draftDrift : une clé absente de la langue au départ, toujours absente", 
   assert.equal(C.draftDrift(draft({ exists: false, original: "" }), { source: "Au revoir", value: undefined }), "same");
 });
 
-test("draftDrift : la clé a disparu de la source", () => {
-  assert.equal(C.draftDrift(draft(), { source: undefined, value: "Tschüss" }), "dropped-gone");
+test("draftDrift : la clé a disparu de la source : une correction tapée est gardée, une validation retirée", () => {
+  assert.equal(C.draftDrift(draft(), { source: undefined, value: "Tschüss" }), "gone");
+  assert.equal(C.draftDrift(draft({ value: "Tschüss", edited: false }), { source: undefined, value: "Tschüss" }), "dropped-gone");
+  assert.equal(C.needsChoice("gone"), true);
+  assert.equal(C.needsChoice("dropped-gone"), false);
 });
 
 test("draftDrift : une correction dont le texte cible a changé sur main est un conflit", () => {
@@ -88,4 +91,12 @@ test("draftDrift : dans la langue source, main qui contient déjà la correction
   assert.equal(C.draftDrift(fr, { source: "Au revoir", value: "Au revoir", isSource: true }), "absorbed");
   assert.equal(C.draftDrift(fr, { source: "Bye", value: "Bye", isSource: true }), "conflict");
   assert.equal(C.draftDrift(fr, { source: "Au revior", value: "Au revior", isSource: true }), "same");
+});
+
+test("driftedDrafts : un fichier source ou de langue vide sur main ne fait conclure à rien", () => {
+  const emptySource = { app: { flat: { fr: [], de: C.flatten({ bye: "Bis dann" }) } } as unknown as SetData };
+  const emptyTarget = { app: { flat: { fr: C.flatten({ bye: "Au revoir" }), de: [] } } as unknown as SetData };
+  const drafts = { "app|de|bye": draft(), "app|de|v": draft({ id: "v", value: "Tschüss", edited: false }) };
+  assert.deepEqual(driftedDrafts(drafts, emptySource), []);
+  assert.deepEqual(driftedDrafts(drafts, emptyTarget), []);
 });

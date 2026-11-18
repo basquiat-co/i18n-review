@@ -67,19 +67,42 @@ test("une validation d'un texte que main a changé est retirée, avec un message
   await expect(summary(page)).toContainText("1 validation");
   gh.moveMain("m2", byeOnMain("Bis bald"));
   await backToTab(page);
-  await expect(page.getByRole("alert").filter({ hasText: "1 modification retirée" })).toContainText("bye (de)");
+  await expect(page.getByRole("alert").filter({ hasText: "1 validation retirée" })).toContainText("bye (de)");
   await expect(summary(page)).toContainText("Aucune modification en attente.");
 });
 
-test("une modification d'une clé supprimée sur main est retirée", async ({ page, gh }) => {
+test("une correction sur une clé supprimée sur main est gardée, montrée, et retirée par Alex seulement", async ({ page, gh }) => {
   await login(page);
   await edit(page, "bye", "Tschau");
+  await edit(page, "menu.open", "Aufmachen");
   const { bye: _fr, ...fr } = FR;
   const { bye: _de, ...de } = DE;
   gh.moveMain("m2", { [`${APP}:${FR_PATH}`]: json(fr), [`${APP}:${DE_PATH}`]: json(de) });
   await backToTab(page);
-  await expect(page.getByRole("alert").filter({ hasText: "1 modification retirée" })).toContainText("bye (de)");
-  await expect(summary(page)).toContainText("Aucune modification en attente.");
+  await expect(summary(page)).toContainText("1 à revoir");
+  await expect(summary(page)).toContainText("2 corrections");
+  await expect(page.getByText(/retirée/)).toHaveCount(0);
+
+  await page.getByRole("button", { name: "Préparer la pull request" }).click();
+  const dialog = page.getByRole("dialog");
+  const note = dialog.getByRole("group", { name: "Changé sur main : bye (de)" });
+  await expect(note).toContainText("Clé supprimée");
+  await expect(note).toContainText("Tschau");
+  await expect(dialog.getByRole("button", { name: "Créer la pull request" })).toBeDisabled();
+  await note.getByRole("button", { name: "Retirer" }).click();
+  await expect(dialog.getByRole("button", { name: "Créer la pull request" })).toBeEnabled();
+  await expect(summary(page)).toContainText("1 correction");
+});
+
+test("un fichier de langue vidé sur main ne retire aucune validation", async ({ page, gh }) => {
+  await login(page);
+  await row(page, "bye").getByRole("button", { name: "Valider", exact: true }).click();
+  gh.moveMain("m2", { [`${APP}:${DE_PATH}`]: json({}) });
+  await backToTab(page);
+  await expect.poll(() => gh.calls.some(c => c.includes("/compare/base...m2"))).toBe(true);
+  await page.waitForTimeout(300);
+  await expect(page.getByText(/retirée/)).toHaveCount(0);
+  await expect(summary(page)).toContainText("1 validation");
 });
 
 test("la fenêtre d'envoi relit main et bloque l'envoi tant qu'un conflit n'est pas tranché", async ({ page, gh }) => {

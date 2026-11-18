@@ -127,6 +127,8 @@ export class GitHub {
       }
       // Un fichier source absent ou vide (déplacé, en cours de réécriture) rendrait toutes les clés « supprimées ».
       if (!flat[set.source].length) throw new Error(`Fichier source introuvable ou vide sur la branche principale : ${filePath(set, set.source)}. Rien n'a été envoyé ; préviens un développeur.`);
+      const empty = mine.find(d => d.exists && !flat[d.lang].length);
+      if (empty) throw new Error(`Fichier de traduction introuvable ou vide sur la branche principale : ${filePath(set, empty.lang)}. Rien n'a été envoyé ; préviens un développeur.`);
       const now = C.mainLookup(set.source, flat);
       for (const d of mine) {
         const drift = C.draftDrift(d, now(d.lang, d.id));
