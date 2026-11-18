@@ -175,7 +175,14 @@ export async function submitPr(title: string, note: string) {
   set({ pr: { ...pr, submitting: true } });
   const who = user ? (user.name || user.login) : "relecture";
   const results: CreatedPr[] = [];
-  const done = () => { for (const r of results) notify("ok", `Pull request créée dans ${r.repo}.`, { href: r.url, text: "Ouvrir la PR #" + r.number }); };
+  const done = () => {
+    for (const r of results) {
+      const text = (r.updated ? `Pull request #${r.number} mise à jour dans ${r.repo}.` : `Pull request créée dans ${r.repo}.`) +
+        (r.autoMerge ? " Elle sera fusionnée automatiquement dès que les vérifications passent." : "") +
+        r.notes.map(n => " " + n).join("");
+      notify("ok", text, { href: r.url, text: "Ouvrir la PR #" + r.number });
+    }
+  };
   try {
     if (pr.mode === "init") {
       results.push(await client.createPr(knownSet(pr.setId).repo, title, note, who, { initSet: pr.setId }));

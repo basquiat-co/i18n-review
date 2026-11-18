@@ -48,6 +48,7 @@ function PrForm() {
             : byRepo.length > 1
               ? `Une pull request sera créée dans chacun de ces dépôts : ${byRepo.join(", ")}.`
               : `La pull request sera créée dans ${byRepo[0]}.`}
+          {" "}Si une pull request de relecture ouverte ne contient que des traductions, tes modifications y sont ajoutées, sur la dernière version du dépôt.
         </DialogDescription>
       </DialogHeader>
 

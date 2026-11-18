@@ -45,7 +45,7 @@ npm test           # tests unitaires (Vitest)
 npm run test:e2e   # parcours complets dans Chromium (Playwright)
 ```
 
-Les tests de parcours construisent l'application, puis la pilotent dans Chromium avec une **fausse API GitHub** (`e2e/fake-github.ts`) : aucun appel réseau réel. Ils couvrent la connexion, les statuts et les filtres, les corrections, les pluriels, la création de la pull request (contenu exact des fichiers envoyés), le verrou contre les PR en double et les modifications mises de côté. Ils visent l'interface par ses libellés accessibles. `E2E_BASE_URL=http://… npm run test:e2e` les lance contre une autre version déjà servie, par exemple l'ancienne.
+Les tests de parcours construisent l'application, puis la pilotent dans Chromium avec une **fausse API GitHub** (`e2e/fake-github.ts`) : aucun appel réseau réel. Ils couvrent la connexion, les statuts et les filtres, les corrections, les pluriels, la création de la pull request (contenu exact des fichiers envoyés), la reprise d'une PR ouverte, la fusion automatique, le verrou contre les PR en double et les modifications mises de côté. Ils visent l'interface par ses libellés accessibles. `E2E_BASE_URL=http://… npm run test:e2e` les lance contre une autre version déjà servie, par exemple l'ancienne.
 
 En local, si Playwright ne trouve pas Chromium : `npx playwright install chromium`.
 
@@ -80,6 +80,8 @@ Sur GitHub Actions, `.github/workflows/tests.yml` lance les trois à chaque pull
 - **`.i18n-review.json`**, à la racine de chaque dépôt, enregistre pour chaque clé relue l'empreinte du texte source et celle de la traduction. Une clé redevient « à relire » dès que l'un des deux textes change.
 - Les **modifications en attente** sont gardées dans le navigateur jusqu'à la création de la PR. Celles d'un jeu ou d'une langue retirés de `SETS` sont mises de côté et ne sont jamais envoyées.
 - Les fichiers sont réécrits avec leur indentation d'origine. Une clé manquante est insérée à sa place, dans l'ordre de la langue source.
+- **Une seule PR de relecture ouverte par dépôt.** Si une PR de l'outil est déjà ouverte et ne contient que des fichiers relus (traductions des jeux du dépôt et `.i18n-review.json`), l'envoi la reprend au lieu d'en ouvrir une autre : ce qu'elle avait écrit est rejoué sur la dernière version de la branche principale, la nouvelle relecture est ajoutée par-dessus, et sa branche avance d'un commit de fusion (jamais de réécriture d'historique). Elle reste donc à jour et ne peut pas entrer en conflit. Une clé supprimée entre-temps n'est pas recréée ; une valeur changée aussi sur la branche principale garde ce texte-là et repasse à relire (elle est listée dans la description de la PR). Une simple validation d'une clé que la PR avait déjà corrigée ne défait pas cette correction. Une PR qui contient un commit fait à la main (d'autres fichiers, des tests, la branche principale fusionnée dedans) ou un fichier illisible n'est pas reprise : une nouvelle PR est créée.
+- **Fusion automatique.** Chaque nouvelle PR demande à GitHub de la fusionner dès que les vérifications requises passent (jamais de fusion directe). Il faut que le dépôt l'autorise (*Settings → General → Allow auto-merge*) ; sinon rien n'est demandé et un développeur fusionne la PR comme avant. Une PR reprise garde son réglage : un développeur a pu retirer la fusion automatique exprès.
 
 ## Sécurité
 

@@ -417,6 +417,50 @@ export function initReview(review: Review, setId: string, sourceLang: string, la
   return next;
 }
 
+// ---------- Reprise d'une pull request ouverte ----------
+// Une PR de l'outil encore ouverte est reconstruite sur la dernière version de la branche principale
+// avant d'y ajouter la nouvelle relecture : elle reste à jour et ne peut pas entrer en conflit.
+
+/**
+ * Valeurs qu'une PR a écrites dans une langue (base : son point de départ, head : sa dernière version),
+ * à rejouer sur main. Une clé absente de la source sur main (liveIds) a été supprimée : elle n'est pas recréée.
+ * Une valeur que main a aussi changée depuis la base garde le texte de main : elle part dans clashes.
+ */
+export function replayValues(base: JsonObject, head: JsonObject, main: JsonObject, liveIds: Set<string>): { edits: FlatEntry[]; clashes: string[] } {
+  const b = toMap(flatten(base)), m = toMap(flatten(main));
+  const edits: FlatEntry[] = [], clashes: string[] = [];
+  for (const e of flatten(head)) {
+    const bv = b.get(e.id)?.value, mv = m.get(e.id)?.value;
+    if (e.value === bv || e.value === mv || !liveIds.has(e.id)) continue;
+    if (mv !== bv) clashes.push(e.id); else edits.push(e);
+  }
+  return { edits, clashes };
+}
+
+/**
+ * Rejoue sur l'état de relecture de main les entrées qu'une PR a changées, sauf celles que main a changées depuis.
+ * live(jeu) : clés encore présentes dans la source sur main (null : jeu inconnu, rien n'est repris) ;
+ * skip : « jeu|langue|clé » à ne pas reprendre (valeurs en conflit, qui doivent repasser à relire).
+ */
+export function replayReview(main: Review, base: Review, head: Review, live: (setId: string) => Set<string> | null, skip: Set<string>): Review {
+  const next: Review = JSON.parse(JSON.stringify(main));
+  for (const [setId, langs] of Object.entries(head.sets)) {
+    const ids = live(setId);
+    if (!ids) continue;
+    for (const [lang, entries] of Object.entries(langs)) {
+      const before = reviewEntries(base, setId, lang), now = reviewEntries(main, setId, lang);
+      for (const [k, v] of Object.entries(entries)) {
+        // main a relu la clé depuis la base de la PR (une autre PR fusionnée) : son entrée est la plus récente.
+        if (v === before[k] || now[k] !== before[k] || !ids.has(k) || skip.has(`${setId}|${lang}|${k}`)) continue;
+        next.sets[setId] = next.sets[setId] || {};
+        next.sets[setId][lang] = next.sets[setId][lang] || {};
+        next.sets[setId][lang][k] = v;
+      }
+    }
+  }
+  return next;
+}
+
 // ---------- Modifications en attente ----------
 
 export interface Draft {
