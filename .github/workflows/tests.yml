@@ -10,7 +10,8 @@ permissions:
 
 jobs:
   test:
-    runs-on: ubuntu-latest
+    # Version fixée : Playwright 1.56 n'installe pas Chromium sur ubuntu-latest (26.04). À relever avec Playwright.
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v7
