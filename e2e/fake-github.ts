@@ -10,7 +10,6 @@ export interface CompareInfo { mergeBase: string; files: string[]; commits?: str
 
 export class FakeGitHub {
   files: Record<string, string> = {};
-  binaries: Record<string, Buffer> = {}; // fichiers binaires (captures d'écran), même clé que files
   pulls: Record<string, PullInfo[]> = {};
   userStatus = 200;
   pullGate: Promise<void> | null = null; // si défini, la création d'une PR attend que le test le libère
@@ -22,12 +21,10 @@ export class FakeGitHub {
   mergeOnMove = false; // la PR est fusionnée juste après la mise à jour de sa branche
   noCommitsBetween = false; // la création de PR répond « No commits between » (rien de nouveau à proposer)
   mainSha = "base";    // sha actuel de la branche principale (les fichiers « dépôt:chemin » sont les siens)
-  mainStatus = 200;
-  fileCommits: Record<string, string[]> = {};  // « dépôt:chemin » → shas des commits qui l'ont touché, du plus récent au plus ancien
-  commitPulls: Record<string, number> = {};    // sha d'un commit → numéro de la PR qui l'a apporté    // si autre que 200, la lecture du sha de main échoue avec ce code
+  mainStatus = 200;    // si autre que 200, la lecture du sha de main échoue avec ce code
   calls: string[] = [];
   posts = {
-    trees: [] as { repo: string; body: { base_tree: string; tree: { path: string; content?: string; sha?: null }[] } }[],
+    trees: [] as { repo: string; body: { base_tree: string; tree: { path: string; content: string }[] } }[],
     commits: [] as { repo: string; body: { message: string; tree: string; parents: string[] } }[],
     refs: [] as { repo: string; body: { ref: string; sha: string } }[],
     pulls: [] as { repo: string; body: { title: string; head: string; base: string; body: string } }[],
@@ -52,11 +49,6 @@ export class FakeGitHub {
   writes(): number {
     const p = this.posts;
     return p.trees.length + p.commits.length + p.refs.length + p.pulls.length + p.refUpdates.length + p.pullUpdates.length;
-  }
-
-  /** Le chemin est supprimé par la dernière PR (entrée d'arbre sans contenu, sha null). */
-  deleted(path: string): boolean {
-    return !!this.posts.trees.at(-1)?.body.tree.some(t => t.path === path && t.sha === null);
   }
 
   /** Contenu du fichier écrit dans la dernière PR (arbre Git envoyé), ou undefined. */
@@ -111,11 +103,6 @@ export class FakeGitHub {
       const path = decodeURIComponent(m[2]);
       const key = ref === this.mainSha ? `${m[1]}:${path}` : `${m[1]}@${ref}:${path}`;
       if (key in this.files) return route.fulfill({ status: 200, headers: cors, body: this.files[key] });
-      if (key in this.binaries) return route.fulfill({ status: 200, headers: { ...cors, "content-type": "application/octet-stream" }, body: this.binaries[key] });
-      // Un dossier : la liste de ses fichiers directs.
-      const prefix = key + "/";
-      const names = [...Object.keys(this.files), ...Object.keys(this.binaries)].filter(k => k.startsWith(prefix) && !k.slice(prefix.length).includes("/"));
-      if (names.length) return json(200, names.map(k => ({ name: k.slice(prefix.length), path: `${path}/${k.slice(prefix.length)}`, type: "file" })));
       return json(404, { message: "Not Found" });
     }
     if ((m = p.match(/^\/repos\/([^/]+\/[^/]+)\/pulls$/)) && method === "GET") {
@@ -138,13 +125,6 @@ export class FakeGitHub {
       if (this.noCommitsBetween) return json(422, { message: "Validation Failed: No commits between main and the branch" });
       const number = this.posts.pulls.length;
       return json(201, { html_url: `https://github.com/${m[1]}/pull/${number}`, number, node_id: `PR_${number}` });
-    }
-    if ((m = p.match(/^\/repos\/([^/]+\/[^/]+)\/commits$/)) && method === "GET") {
-      return json(200, (this.fileCommits[`${m[1]}:${url.searchParams.get("path")}`] || []).map(sha => ({ sha })));
-    }
-    if ((m = p.match(/^\/repos\/([^/]+\/[^/]+)\/commits\/([^/]+)\/pulls$/))) {
-      const n = this.commitPulls[m[2]];
-      return json(200, n ? [{ number: n, html_url: `https://github.com/${m[1]}/pull/${n}` }] : []);
     }
     return json(500, { message: `route non simulée : ${method} ${p}` });
   }

@@ -9,7 +9,7 @@ import { DriftNote } from "@/components/DriftNote";
 import { REVIEW_FILE, langName, setById } from "@/lib/config";
 import { needsChoice } from "@/lib/core";
 import { driftedDrafts } from "@/lib/rows";
-import { closePr, submitPr, unsentSettled, useApp } from "@/store";
+import { closePr, submitPr, useApp } from "@/store";
 
 export function PrDialog() {
   const pr = useApp(s => s.pr);
@@ -37,14 +37,12 @@ function PrForm() {
   const conflicts = pr.mode === "drafts" ? driftedDrafts(drafts, data).filter(x => needsChoice(x.drift)) : [];
   const blocked = pr.submitting || pr.checking || conflicts.length > 0;
   const set = setById(pr.setId);
-  const settled = unsentSettled(useApp(s => s.settled));
-  const byRepo = [...new Set([...list.map(d => setById(d.set).repo), ...settled.map(x => x.repo)])];
+  const byRepo = [...new Set(list.map(d => setById(d.set).repo))];
   const edited = list.filter(d => d.edited);
   const langs = [...new Set(list.map(d => langName(d.lang)))].join(", ");
   const [title, setTitle] = useState(() => pr.mode === "init"
     ? `i18n : état de relecture initial pour ${set.label}`
-    : langs ? `i18n : relecture ${langs} du ${new Date().toLocaleDateString("fr-CH")}`
-      : `i18n : suggestions réglées le ${new Date().toLocaleDateString("fr-CH")}`);
+    : `i18n : relecture ${langs} du ${new Date().toLocaleDateString("fr-CH")}`);
   const [note, setNote] = useState("");
 
   return (
@@ -101,7 +99,6 @@ function PrForm() {
           <div className="flex flex-col gap-2">
             <h3 className="text-sm font-medium">
               {edited.length} correction{edited.length > 1 ? "s" : ""}, {list.length - edited.length} validation{list.length - edited.length > 1 ? "s" : ""} sans changement
-              {settled.length ? `, ${settled.length} suggestion${settled.length > 1 ? "s réglées (retirées" : " réglée (retirée"} des fichiers de suggestions)` : ""}
             </h3>
             {edited.length ? (
               <div className="max-h-72 overflow-auto rounded-lg border">

@@ -4,7 +4,7 @@ import { Button } from "@/components/ui/button";
 import { setById } from "@/lib/config";
 import { needsChoice } from "@/lib/core";
 import { driftedDrafts } from "@/lib/rows";
-import { discardAll, openPr, unsentSettled, useApp } from "@/store";
+import { discardAll, openPr, useApp } from "@/store";
 
 // Barre d'envoi, collée en bas : ce qui partira dans la pull request.
 export function SendBar() {
@@ -14,8 +14,6 @@ export function SendBar() {
   const repos = new Set(list.map(d => setById(d.set).repo));
   const data = useApp(s => s.data);
   const conflicts = driftedDrafts(drafts, data).filter(x => needsChoice(x.drift)).length;
-  const settledCount = unsentSettled(useApp(s => s.settled)).length;
-  const anything = list.length > 0 || settledCount > 0;
 
   // « Tout annuler » demande une confirmation pendant 4 secondes.
   const [confirm, setConfirm] = useState(false);
@@ -33,9 +31,8 @@ export function SendBar() {
           <span aria-hidden="true" className={list.length ? "grid size-8 shrink-0 place-items-center rounded-full bg-draft text-sm font-semibold text-primary-foreground tabular-nums dark:text-background" : "hidden"}>{list.length}</span>
           <div className="flex min-w-0 flex-col">
             <span id="send-summary" className="text-sm" aria-live="polite">
-              {anything
+              {list.length
                 ? <><strong className="font-semibold tabular-nums">{edited}</strong>{` correction${edited > 1 ? "s" : ""} · `}<strong className="font-semibold tabular-nums">{validated}</strong>{` validation${validated > 1 ? "s" : ""} sans changement` + (repos.size > 1 ? ` · ${repos.size} dépôts` : "")}
-                  {settledCount ? <> · <strong className="font-semibold tabular-nums">{settledCount}</strong>{` suggestion${settledCount > 1 ? "s réglées" : " réglée"}`}</> : null}
                   {conflicts ? <> · <strong className="font-semibold text-[color:var(--st-modified)] tabular-nums">{conflicts} à revoir</strong></> : null}</>
                 : <span className="text-muted-foreground">Aucune modification en attente.</span>}
             </span>
@@ -48,7 +45,7 @@ export function SendBar() {
           <Button variant={confirm ? "destructive" : "ghost"} size="sm" disabled={!list.length} onClick={onDiscard}>
             <Trash2 />{confirm ? "Confirmer l'annulation" : "Tout annuler"}
           </Button>
-          <Button size="sm" disabled={!anything} onClick={() => openPr("drafts")}><GitPullRequestArrow />Préparer la pull request</Button>
+          <Button size="sm" disabled={!list.length} onClick={() => openPr("drafts")}><GitPullRequestArrow />Préparer la pull request</Button>
         </div>
       </div>
     </div>

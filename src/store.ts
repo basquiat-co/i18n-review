@@ -1,8 +1,8 @@
 import { create } from "zustand";
 import { rebaseDraft, type Drafts } from "@/lib/core";
 import { PAGE, SETS, knownSet, setById, type FilterKey } from "@/lib/config";
-import { GhError, GitHub, StaleDraftsError, explain, type CreatedPr, type GhUser, type SetData, type Settled, type Suggestion } from "@/lib/github";
-import { activeLangs, applyEdit, draftKey, driftedDrafts, removeDrafts, rowsFor, settledKey, validateCells, type Cell } from "@/lib/rows";
+import { GhError, GitHub, StaleDraftsError, explain, type CreatedPr, type GhUser, type SetData } from "@/lib/github";
+import { activeLangs, applyEdit, draftKey, driftedDrafts, removeDrafts, validateCells, type Cell } from "@/lib/rows";
 import * as storage from "@/lib/storage";
 
 export interface Notice { id: number; kind: "ok" | "warn" | "error"; text: string; link?: { href: string; text: string } }
@@ -22,7 +22,6 @@ interface AppState {
   checkedAt: Record<string, number>; // dernière fois que main a été comparé à ce qui est affiché, par jeu
   drafts: Drafts;
   orphans: Drafts;
-  settled: storage.SettledState; // suggestions réglées par la traductrice
   rawRows: Record<string, true>; // cellules affichées en texte brut plutôt que forme par forme
   notices: Notice[];
   // checkError : la relecture de main avant l'envoi a échoué (affiché dans la fenêtre, qui cache les messages).
@@ -46,7 +45,6 @@ export const useApp = create<AppState>(() => ({
   checkedAt: {},
   drafts: storage.loadDrafts(),
   orphans: storage.loadOrphans(),
-  settled: storage.loadSettled(),
   rawRows: {},
   notices: [],
   pr: { open: false, mode: "drafts", setId: SETS[0].id, submitting: false, checking: false, refused: false, checkError: "" },
@@ -112,7 +110,6 @@ export async function refresh(force = false) {
     if (gen !== generation) return;
     set(s => ({ data: { ...s.data, [setId]: loaded }, checkedAt: { ...s.checkedAt, [setId]: Date.now() } }));
     reconcile(setId);
-    pruneSettled(setId);
   } catch (e) {
     if ((e as GhError).status === 401) { logout("Le jeton GitHub est refusé (expiré ou révoqué). Colle un nouveau jeton."); return; }
     notify("error", "Impossible de charger les fichiers. " + explain(e, setById(setId).repo));
@@ -171,7 +168,6 @@ async function freshen(setId: string) {
   if (gen !== generation || c !== client) return;
   set(s => ({ ...(next ? { data: { ...s.data, [setId]: next } } : {}), checkedAt: { ...s.checkedAt, [setId]: Date.now() } }));
   reconcile(setId);
-  pruneSettled(setId);
 }
 
 // Les champs ne sont pas contrôlés et sont recréés quand leur texte change : remplacer les données pendant
@@ -198,9 +194,9 @@ function reconcile(setId: string) {
   // Source absente ou vide sur main (fichier déplacé, en cours de réécriture) : toutes les clés sembleraient
   // supprimées. On ne touche à rien ; l'envoi le refusera en nommant le fichier.
   if (!loaded || !loaded.flat[setById(setId).source]?.length) return;
-  // Relu sur l'ordinateur en plus de la mémoire : un autre onglet a pu enregistrer des modifications depuis, et cette
-  // mise à jour en fond ne doit pas les écraser (ni tout effacer si le stockage est bloqué).
-  const drafts = { ...get().drafts, ...storage.loadDrafts() };
+  // Relu sur l'ordinateur plutôt qu'en mémoire : un autre onglet a pu enregistrer des modifications depuis, et
+  // cette mise à jour en fond ne doit pas les écraser.
+  const drafts = { ...storage.loadDrafts() };
   const drifted = driftedDrafts(drafts, get().data, setId);
   if (!drifted.some(x => x.drift === "absorbed" || x.drift.startsWith("dropped"))) return;
   const next = { ...drafts };
@@ -272,97 +268,12 @@ export function editCell(cell: Cell, value: string, explicit: boolean) {
   if (next) saveDrafts(next);
 }
 export const validate = (cells: Cell[]) => saveDrafts(validateCells(get().drafts, get().setId, cells));
-export function undo(cells: Cell[]) {
-  saveDrafts(removeDrafts(get().drafts, get().setId, cells));
-  dropTaken(x => cells.some(c => c.id === x.key) && x.repo === setById(get().setId).repo && x.catalog === setById(get().setId).path);
-}
-export function discardAll() {
-  saveDrafts({});
-  dropTaken(() => true);
-}
-// Une suggestion « reprise » dont les corrections ont été annulées n'est plus reprise : elle redevient à régler
-// (sinon la PR la retirerait alors que son texte n'est nulle part).
-function dropTaken(match: (x: Settled) => boolean) {
-  const settled = currentSettled();
-  let changed = false;
-  for (const [k, x] of Object.entries(settled)) if (x.decision === "taken" && match(x)) { delete settled[k]; changed = true; }
-  if (changed) saveSettled(settled);
-}
+export const undo = (cells: Cell[]) => saveDrafts(removeDrafts(get().drafts, get().setId, cells));
+export const discardAll = () => saveDrafts({});
 export function deleteOrphans() {
   storage.clearOrphans();
   set({ orphans: {} });
 }
-
-/* ================= Suggestions des développeurs ================= */
-// Captures d'écran : lues avec le jeton (dépôt privé), gardées en mémoire le temps de la page.
-const images = new Map<string, Promise<string>>();
-export function screenshotUrl(path: string): Promise<string> {
-  const { setId, data } = get();
-  const fileSet = setById(setId), sha = data[setId]?.sha;
-  if (!client || !sha) return Promise.reject(new Error("pas de données"));
-  const key = `${fileSet.repo}@${sha}:${path}`;
-  if (!images.has(key)) {
-    images.set(key, client.getBlob(fileSet.repo, path, sha).then(b => URL.createObjectURL(b), e => { images.delete(key); throw e; }));
-  }
-  return images.get(key)!;
-}
-function saveSettled(settled: storage.SettledState) {
-  storage.saveSettled(settled);
-  set({ settled });
-}
-
-// Décisions : la mémoire, plus ce qu'un autre onglet a enregistré (le stockage peut être bloqué : jamais seul).
-const currentSettled = (): storage.SettledState => ({ ...get().settled, ...storage.loadSettled() });
-
-// Une décision n'a plus d'objet quand main ne contient plus la suggestion, ou qu'une PR ouverte la retire déjà.
-function pruneSettled(setId: string) {
-  const fileSet = setById(setId), loaded = get().data[setId];
-  if (!loaded) return;
-  const live = new Set(loaded.suggestions.filter(s => !s.pending).map(s => settledKey({ repo: fileSet.repo, ...s })));
-  const settled = currentSettled();
-  let changed = false;
-  for (const [k, x] of Object.entries(settled)) {
-    if (x.repo === fileSet.repo && x.catalog === fileSet.path && !live.has(k)) { delete settled[k]; changed = true; }
-  }
-  if (changed) saveSettled(settled);
-}
-
-/**
- * Reprendre une suggestion : ses textes proposés deviennent des corrections, qu'Alex peut encore retoucher. Elle
- * n'est réglée que si au moins un texte a pu être repris ; sinon rien ne change et un message dit pourquoi.
- */
-export function takeSuggestion(item: Suggestion) {
-  const { setId, data } = get();
-  const fileSet = setById(setId), loaded = data[setId];
-  if (!loaded || item.catalog !== fileSet.path) return;
-  let drafts = get().drafts, taken = 0;
-  for (const [lang, text] of Object.entries(item.proposed)) {
-    if (!fileSet.langs.includes(lang)) continue;
-    const cell = rowsFor(fileSet, loaded, lang, drafts).find(r => r.id === item.key);
-    if (!cell) continue;
-    drafts = applyEdit(drafts, setId, cell, text, true) ?? drafts;
-    taken++;
-  }
-  if (!taken) {
-    notify("warn", `La suggestion pour ${item.key} ne peut pas être reprise ici : aucune de ses langues n'est relue dans ce jeu, ou la clé n'est pas une ligne. Recopie le texte à la main, puis mets-la de côté.`);
-    return;
-  }
-  saveDrafts(drafts);
-  settle(item, "taken");
-}
-export const setAside = (item: Suggestion) => settle(item, "aside");
-function settle(item: Suggestion, decision: "taken" | "aside") {
-  const x = { repo: setById(get().setId).repo, file: item.file, catalog: item.catalog, key: item.key, decision };
-  saveSettled({ ...currentSettled(), [settledKey(x)]: x });
-}
-/** Revenir sur une décision pas encore envoyée (les corrections reprises restent : « Annuler » sur la ligne). */
-export function unsettle(item: Suggestion) {
-  const settled = currentSettled();
-  delete settled[settledKey({ repo: setById(get().setId).repo, ...item })];
-  saveSettled(settled);
-}
-/** Décisions qui partiront dans la prochaine PR (une décision envoyée est retirée : la PR la porte). */
-export const unsentSettled = (settled: storage.SettledState) => Object.values(settled);
 
 /* ================= Pull request ================= */
 // Pendant la création, le panneau ne peut être ni fermé ni rouvert : un second envoi créerait une PR en double.
@@ -378,8 +289,7 @@ export function openPr(mode: PrMode, setId = get().setId) {
 let preflightSeq = 0;
 async function preflight() {
   const seq = ++preflightSeq;
-  const settledSets = Object.values(get().settled).flatMap(x => SETS.filter(s => s.repo === x.repo && s.path === x.catalog).map(s => s.id));
-  const sets = [...new Set([...Object.values(get().drafts).map(d => d.set), ...settledSets])];
+  const sets = [...new Set(Object.values(get().drafts).map(d => d.set))];
   const results = await Promise.allSettled(sets.map(freshen));
   if (seq !== preflightSeq) return;
   const failed = results.find((r): r is PromiseRejectedResult => r.status === "rejected");
@@ -411,18 +321,13 @@ export async function submitPr(title: string, note: string) {
     if (pr.mode === "init") {
       results.push(await client.createPr(knownSet(pr.setId).repo, title, note, who, { initSet: pr.setId }));
     } else {
-      const repos = [...new Set([...Object.values(get().drafts).map(d => knownSet(d.set).repo), ...unsentSettled(get().settled).map(x => x.repo)])];
+      const repos = [...new Set(Object.values(get().drafts).map(d => knownSet(d.set).repo))];
       for (const repo of repos) {
         const drafts = Object.values(get().drafts).filter(d => knownSet(d.set).repo === repo);
-        const settled = unsentSettled(get().settled).filter(x => x.repo === repo);
-        results.push(await client.createPr(repo, title, note, who, { drafts, settled }));
+        results.push(await client.createPr(repo, title, note, who, { drafts }));
         const left = { ...get().drafts };
         for (const d of drafts) delete left[draftKey(d.set, d.lang, d.id)];
         saveDrafts(left);
-        // Envoyées : la PR ouverte les porte désormais (la page les montre « en attente » d'après elle).
-        const now = currentSettled();
-        for (const x of settled) delete now[settledKey(x)];
-        saveSettled(now);
       }
     }
     set(s => ({ pr: { ...s.pr, open: false, submitting: false }, data: {} }));
@@ -441,7 +346,6 @@ export async function submitPr(title: string, note: string) {
     set(s => ({ pr: { ...s.pr, open: false, submitting: false } }));
     done();
     notify("error", "La pull request n'a pas pu être créée. " + explain(e) + " Tes modifications sont conservées.");
-    void refresh(true); // la vue était peut-être en retard sur main
   }
 }
 

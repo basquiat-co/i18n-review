@@ -1,19 +1,11 @@
 import * as C from "./core";
 import { MAX_LANGS, STATUS_ORDER, TODO, knownSet, type FileSet, type FilterKey } from "./config";
-import type { SetData, Settled, Suggestion } from "./github";
+import type { SetData } from "./github";
 
 /* Modèle d'affichage : une clé = la source + une cellule par langue éditée. Fonctions pures. */
 
 export interface Cell extends C.Row { lang: string; draft: C.Draft | null }
-/** Une suggestion avec la décision de la traductrice, si elle l'a déjà réglée (pas encore envoyée). */
-/**
- * Une suggestion sous sa ligne. settled : la décision d'Alex pas encore envoyée. applicable : « Reprendre » peut
- * créer une correction (la clé est une ligne, et au moins une langue proposée est relue dans ce jeu).
- */
-export interface KeySuggestion { item: Suggestion; settled: Settled["decision"] | null; applicable: boolean }
-export interface Key { id: string; segs: string[]; source: string; group?: string; form?: string; cells: Cell[]; suggestions: KeySuggestion[] }
-
-export const settledKey = (x: { repo: string; file: string; catalog: string; key: string }) => `${x.repo}|${x.file}|${x.catalog}|${x.key}`;
+export interface Key { id: string; segs: string[]; source: string; group?: string; form?: string; cells: Cell[] }
 // Une unité affichée est soit une clé simple, soit un pluriel (toutes ses formes ensemble).
 export type Unit = { group: string; keys: Key[]; key?: undefined } | { key: Key; group?: undefined; keys?: undefined };
 
@@ -38,42 +30,17 @@ export function rowsFor(set: FileSet, data: SetData, lang: string, drafts: C.Dra
 }
 
 // Toutes les listes suivent l'ordre de la source.
-export function currentKeys(set: FileSet, data: SetData, langs: string[], drafts: C.Drafts, settled: Record<string, Settled> = {}): Key[] {
+export function currentKeys(set: FileSet, data: SetData, langs: string[], drafts: C.Drafts): Key[] {
   const lists = langs.map(l => rowsFor(set, data, l, drafts));
-  const byKey = new Map<string, KeySuggestion[]>();
-  for (const item of data.suggestions) {
-    const s = settled[settledKey({ repo: set.repo, ...item })];
-    const applicable = Object.keys(item.proposed).some(l => set.langs.includes(l)) && data.flat[set.source].some(e => e.id === item.key);
-    byKey.set(item.key, [...(byKey.get(item.key) || []), { item, settled: s ? s.decision : null, applicable }]);
-  }
-  const groups = new Set<string>();
-  return lists[0].map((r0, i) => {
-    // Un pluriel en sous-clés peut être suggéré par forme, ou par sa clé de groupe (« files ») : celle-ci est portée
-    // par la première forme, une seule fois.
-    const first = !!r0.group && !groups.has(r0.group);
-    if (r0.group) groups.add(r0.group);
-    return {
-      id: r0.id, segs: r0.segs, source: r0.source, group: r0.group, form: r0.form,
-      cells: lists.map(list => list[i]),
-      suggestions: [...(byKey.get(r0.id) || []), ...(first ? byKey.get(r0.group!) || [] : [])],
-    };
-  });
-}
-
-/** Suggestions dont la clé n'existe plus dans la source de main : rien à afficher sous une ligne. */
-export function orphanSuggestions(set: FileSet, data: SetData): Suggestion[] {
-  // Une clé, ou un pluriel en sous-clés (montré sous sa première forme) ; un simple objet parent n'a pas de ligne.
-  const ids = new Set<string>();
-  for (const r of C.annotatePlurals((data.flat[set.source] || []).map(e => ({ ...e })) as (C.FlatEntry & { group?: string })[])) {
-    ids.add(r.id);
-    if (r.group) ids.add(r.group);
-  }
-  return data.suggestions.filter(s => !ids.has(s.key));
+  return lists[0].map((r0, i) => ({
+    id: r0.id, segs: r0.segs, source: r0.source, group: r0.group, form: r0.form,
+    cells: lists.map(list => list[i]),
+  }));
 }
 
 export function keyMatchesStatus(k: Key, f: FilterKey): boolean {
   if (f === "all") return true;
-  if (f === "todo") return k.cells.some(c => TODO.includes(c.status) || c.draft) || k.suggestions.some(s => !s.settled && !s.item.pending);
+  if (f === "todo") return k.cells.some(c => TODO.includes(c.status) || c.draft);
   if (f === "ok") return k.cells.every(c => c.status === "ok");
   return k.cells.some(c => c.status === f);
 }
@@ -82,7 +49,6 @@ export function matchesSearch(k: Key, search: string): boolean {
   if (!search) return true;
   const q = search.toLowerCase();
   return k.id.toLowerCase().includes(q) || k.source.toLowerCase().includes(q) ||
-    k.suggestions.some(s => s.item.context.toLowerCase().includes(q) || Object.values(s.item.proposed).some(v => v.toLowerCase().includes(q))) ||
     k.cells.some(c => (c.value || "").toLowerCase().includes(q) || (!!c.draft && c.draft.value.toLowerCase().includes(q)));
 }
 
