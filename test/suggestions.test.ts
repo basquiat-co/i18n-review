@@ -42,3 +42,11 @@ test("settledBetween : ce qu'une PR a retiré, à rejouer sur main", () => {
   assert.deepEqual([...C.settledBetween(file(a), null)], [C.suggestionId(a)]);
   assert.deepEqual([...C.settledBetween(null, file(a))], []);
 });
+
+test("parseAsset : une capture nommée par convention, et rien d'autre", () => {
+  assert.deepEqual(C.parseAsset("i18n-suggestions/feat-x/bff.a.b.de.proposed.webp"),
+    { file: "i18n-suggestions/feat-x.json", key: "bff.a.b", lang: "de", kind: "proposed" });
+  assert.equal(C.parseAsset("i18n-suggestions/feat-x/notes.txt"), null);
+  assert.equal(C.parseAsset("i18n-suggestions/feat-x.json"), null);
+  assert.equal(C.parseAsset("app/x.de.current.webp"), null);
+});

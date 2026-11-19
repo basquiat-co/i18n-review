@@ -10,6 +10,7 @@ export interface CompareInfo { mergeBase: string; files: string[]; commits?: str
 
 export class FakeGitHub {
   files: Record<string, string> = {};
+  binaries: Record<string, Buffer> = {}; // fichiers binaires (captures d'écran), même clé que files
   pulls: Record<string, PullInfo[]> = {};
   userStatus = 200;
   pullGate: Promise<void> | null = null; // si défini, la création d'une PR attend que le test le libère
@@ -110,9 +111,10 @@ export class FakeGitHub {
       const path = decodeURIComponent(m[2]);
       const key = ref === this.mainSha ? `${m[1]}:${path}` : `${m[1]}@${ref}:${path}`;
       if (key in this.files) return route.fulfill({ status: 200, headers: cors, body: this.files[key] });
+      if (key in this.binaries) return route.fulfill({ status: 200, headers: { ...cors, "content-type": "application/octet-stream" }, body: this.binaries[key] });
       // Un dossier : la liste de ses fichiers directs.
       const prefix = key + "/";
-      const names = Object.keys(this.files).filter(k => k.startsWith(prefix) && !k.slice(prefix.length).includes("/"));
+      const names = [...Object.keys(this.files), ...Object.keys(this.binaries)].filter(k => k.startsWith(prefix) && !k.slice(prefix.length).includes("/"));
       if (names.length) return json(200, names.map(k => ({ name: k.slice(prefix.length), path: `${path}/${k.slice(prefix.length)}`, type: "file" })));
       return json(404, { message: "Not Found" });
     }

@@ -23,7 +23,9 @@ export interface Suggestion extends C.SuggestionItem {
   file: string; author: string;
   pr: { number: number; url: string } | null;      // la PR du développeur qui l'a apportée
   pending: { number: number; url: string } | null; // une PR de l'outil ouverte qui la retire (réglée, pas encore fusionnée)
+  screenshots: Screenshot[];                       // où le texte s'affiche, par langue : texte actuel, texte proposé
 }
+export interface Screenshot { lang: string; current?: string; proposed?: string } // chemins dans le dépôt
 
 /** Une suggestion réglée par la traductrice, pas encore envoyée : reprise dans sa relecture, ou mise de côté. */
 export interface Settled { repo: string; file: string; catalog: string; key: string; decision: "taken" | "aside" }
@@ -40,6 +42,19 @@ export class StaleDraftsError extends Error {
   constructor(public keys: string[]) {
     super(`${keys.length} modification${keys.length > 1 ? "s portent" : " porte"} sur des textes changés sur la branche principale depuis.`);
   }
+}
+
+// Captures d'une clé, par langue (l'ordre des langues suit les noms de fichiers).
+function screenshotsOf(paths: string[], key: string): Screenshot[] {
+  const byLang = new Map<string, Screenshot>();
+  for (const path of paths) {
+    const a = C.parseAsset(path);
+    if (!a || a.key !== key) continue;
+    const s = byLang.get(a.lang) || { lang: a.lang };
+    s[a.kind] = path;
+    byLang.set(a.lang, s);
+  }
+  return [...byLang.values()].sort((a, b) => a.lang.localeCompare(b.lang));
 }
 
 // PR de l'outil ouverte, telle que la liste les renvoie.
@@ -96,6 +111,24 @@ export class GitHub {
   }
 
   user() { return this.request<GhUser>("/user"); }
+
+  /** Un fichier binaire (une capture d'écran), lu avec le jeton : le dépôt peut être privé. */
+  async getBlob(repo: string, path: string, ref: string): Promise<Blob> {
+    const res = await fetch(`${API}/repos/${repo}/contents/${encPath(path)}?ref=${encodeURIComponent(ref)}`, {
+      headers: { Authorization: "Bearer " + this.token, Accept: "application/vnd.github.raw+json" },
+    });
+    if (!res.ok) throw new GhError(res.status, res.statusText);
+    // GitHub le sert comme « application/vnd.github.raw+json » : retypé, pour qu'un clic l'ouvre en image.
+    return new Blob([await res.arrayBuffer()], { type: "image/webp" });
+  }
+
+  /** Les fichiers d'un dossier ; vide s'il n'existe pas. */
+  async listDir(repo: string, dir: string, ref: string): Promise<string[]> {
+    try {
+      const entries = await this.request<{ path: string; type: string }[]>(`/repos/${repo}/contents/${encPath(dir)}?ref=${encodeURIComponent(ref)}`);
+      return Array.isArray(entries) ? entries.filter(e => e.type === "file").map(e => e.path) : [];
+    } catch (e) { if ((e as GhError).status === 404) return []; throw e; }
+  }
 
   async getFile(repo: string, path: string, ref: string): Promise<string | null> {
     try { return await this.request<string>(`/repos/${repo}/contents/${encPath(path)}?ref=${encodeURIComponent(ref)}`, { raw: true }); }
@@ -181,8 +214,14 @@ export class GitHub {
       const parsed = C.parseSuggestions(await this.getFile(set.repo, f.path, sha));
       const items = parsed ? parsed.items.filter(it => it.catalog === set.path) : [];
       if (!items.length) return [];
-      const [pr, removed] = await Promise.all([this.prOf(set.repo, f.path, sha), this.removedByOpenPrs(set.repo, f.path, sha, prs)]);
-      return items.map(it => ({ ...it, file: f.path, author: parsed!.author, pr, pending: removed.get(C.suggestionId(it)) ?? null }));
+      const [pr, removed, assets] = await Promise.all([
+        this.prOf(set.repo, f.path, sha), this.removedByOpenPrs(set.repo, f.path, sha, prs),
+        this.listDir(set.repo, C.assetDir(f.path), sha).catch(() => [] as string[]),
+      ]);
+      return items.map(it => ({
+        ...it, file: f.path, author: parsed!.author, pr, pending: removed.get(C.suggestionId(it)) ?? null,
+        screenshots: screenshotsOf(assets, it.key),
+      }));
     }));
     return lists.flat();
   }
@@ -343,6 +382,12 @@ export class GitHub {
       const next = C.removeSuggestions(raw, new Set(list.map(C.suggestionId)));
       if (next === raw) continue;
       out.set(file, next);
+      // Leurs captures partent avec elles (toutes, si le fichier est vidé : il ne reste rien à illustrer).
+      const keys = new Set(list.map(x => x.key));
+      for (const path of await this.listDir(repo, C.assetDir(file), head.sha)) {
+        const a = C.parseAsset(path);
+        if (a && (next === null || keys.has(a.key))) out.set(path, null);
+      }
       for (const x of list) settledLines.push(`- \`${x.key}\` (\`${file}\`) : ${x.decision === "taken" ? "reprise dans la relecture" : "mise de côté"}`);
     }
     if (settledLines.length) lines.push(`- **Suggestions des développeurs** : ${settledLines.length} réglée${settledLines.length > 1 ? "s" : ""}.\n` + settledLines.map(l => "  " + l).join("\n"));
@@ -453,6 +498,11 @@ export class GitHub {
     }
     // Suggestions que la PR avait réglées : retirées à nouveau de la version de main (où d'autres ont pu s'ajouter).
     for (const path of open.files.filter(f => f.startsWith(SUGGESTIONS_DIR + "/"))) {
+      if (C.parseAsset(path)) {
+        // Une capture que la PR avait supprimée, toujours sur main : supprimée à nouveau.
+        if (await at(path, open.sha) === null && await atMain(path) !== null) out.set(path, null);
+        continue;
+      }
       const [baseRaw, headRaw, mainRaw] = await Promise.all([at(path, open.mergeBase), at(path, open.sha), atMain(path)]);
       if (mainRaw === null) continue;
       const next = C.removeSuggestions(mainRaw, C.settledBetween(baseRaw, headRaw));

@@ -294,6 +294,18 @@ export function deleteOrphans() {
 }
 
 /* ================= Suggestions des développeurs ================= */
+// Captures d'écran : lues avec le jeton (dépôt privé), gardées en mémoire le temps de la page.
+const images = new Map<string, Promise<string>>();
+export function screenshotUrl(path: string): Promise<string> {
+  const { setId, data } = get();
+  const fileSet = setById(setId), sha = data[setId]?.sha;
+  if (!client || !sha) return Promise.reject(new Error("pas de données"));
+  const key = `${fileSet.repo}@${sha}:${path}`;
+  if (!images.has(key)) {
+    images.set(key, client.getBlob(fileSet.repo, path, sha).then(b => URL.createObjectURL(b), e => { images.delete(key); throw e; }));
+  }
+  return images.get(key)!;
+}
 function saveSettled(settled: storage.SettledState) {
   storage.saveSettled(settled);
   set({ settled });

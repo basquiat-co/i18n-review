@@ -37,6 +37,8 @@ export const filePath = (set: FileSet, lang: string) => set.path.replace("{lang}
 export function isReviewedPath(repo: string, path: string): boolean {
   if (path === REVIEW_FILE) return true;
   if (path.startsWith(SUGGESTIONS_DIR + "/") && path.endsWith(".json") && !path.slice(SUGGESTIONS_DIR.length + 1).includes("/")) return true;
+  // Les captures d'écran d'une suggestion, que l'outil supprime avec elle.
+  if (/^i18n-suggestions\/[^/]+\/.+\.[a-z]{2}\.(current|proposed)\.webp$/.test(path)) return true;
   return SETS.some(s => s.repo === repo && s.langs.some(l => filePath(s, l) === path));
 }
 

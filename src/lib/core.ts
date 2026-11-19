@@ -592,3 +592,17 @@ export function settledBetween(base: string | null, head: string | null): Set<st
   const after = new Set(parseSuggestions(head)?.items.map(suggestionId) ?? []);
   return new Set(before.filter(id => !after.has(id)));
 }
+
+/**
+ * Capture d'écran d'une suggestion (lift-agentic-service : make i18n-capture), nommée par convention à côté de son
+ * fichier : i18n-suggestions/<branche>/<clé>.<langue>.<current|proposed>.webp. Jamais nommée par le fichier de
+ * suggestions : l'outil ne supprime que ce qui suit ce schéma.
+ */
+export interface SuggestionAsset { file: string; key: string; lang: string; kind: "current" | "proposed" }
+const ASSET = /^(i18n-suggestions\/[^/]+)\/(.+)\.([a-z]{2})\.(current|proposed)\.webp$/;
+export function parseAsset(path: string): SuggestionAsset | null {
+  const m = ASSET.exec(path);
+  return m ? { file: m[1] + ".json", key: m[2], lang: m[3], kind: m[4] as SuggestionAsset["kind"] } : null;
+}
+/** Dossier des captures d'un fichier de suggestions. */
+export const assetDir = (file: string) => file.replace(/\.json$/, "");

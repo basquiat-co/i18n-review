@@ -39,6 +39,8 @@ test("isReviewedPath : les traductions des jeux du dépôt, le fichier d'état e
   assert.ok(app(REVIEW_FILE));
   assert.ok(app("app/i18n/fr/app.json") && app("app/i18n/de/expo.json"));
   assert.ok(app("i18n-suggestions/fix-team-label.json"));
+  assert.ok(app("i18n-suggestions/fix-team-label/bff.a.de.current.webp"), "une capture d'une suggestion");
+  assert.ok(!app("i18n-suggestions/fix-team-label/autre.png"), "rien d'autre dans son dossier");
   assert.ok(!app("i18n-suggestions/README.md"), "seuls les fichiers de suggestions");
   assert.ok(!app("i18n-suggestions/sub/x.json"), "pas de sous-dossier");
   assert.ok(!app("service_bff/src/locales/fr.json"), "un autre dépôt");

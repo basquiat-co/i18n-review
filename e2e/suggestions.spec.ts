@@ -1,4 +1,5 @@
 import { test, expect, login, edit, field, summary, createPr, APP, DE_PATH, REVIEW, DE } from "./fixtures";
+import { readFileSync } from "node:fs";
 import type { Page } from "@playwright/test";
 import type { FakeGitHub } from "./fake-github";
 
@@ -137,6 +138,62 @@ test("une PR reprise rejoue les suggestions qu'elle avait retirées, sans touche
   await createPr(page);
   await expect(page.getByText(/Pull request #7 mise à jour/)).toBeVisible();
   expect(sentFile(gh).items).toEqual([OPEN, NEW]);
+});
+
+// Captures prises par make i18n-capture (lift-agentic-service) : vraies images WebP, données fictives.
+const SHOT = (kind: string) => readFileSync(new URL(`./assets/${kind}.webp`, import.meta.url));
+const shotPath = (key: string, kind: string) => `i18n-suggestions/feat-team/${key}.de.${kind}.webp`;
+function withShots(gh: FakeGitHub, key: string) {
+  for (const kind of ["current", "proposed"]) gh.binaries[`${APP}:${shotPath(key, kind)}`] = SHOT(kind);
+}
+
+test("les captures d'une suggestion s'affichent sous elle, texte actuel et texte proposé", async ({ page, gh }) => {
+  withSuggestions(gh, BYE);
+  withShots(gh, "bye");
+  await login(page);
+  const c = card(page, "bye");
+  for (const alt of ["Texte actuel (de)", "Texte proposé (de)"]) {
+    const img = c.getByRole("img", { name: alt });
+    await expect(img).toBeVisible();
+    // Décodée : lue avec le jeton depuis le dépôt, ce n'est pas un lien cassé.
+    await expect.poll(() => img.evaluate(i => (i as HTMLImageElement).naturalWidth)).toBeGreaterThan(0);
+  }
+  await expect(c.getByText("Texte proposé · allemand")).toBeVisible();
+  // Le lien « agrandir » mène à une image, pas au type brut renvoyé par l'API GitHub.
+  const href = await c.getByRole("link", { name: "Texte actuel (de)" }).getAttribute("href");
+  expect(await page.evaluate(async u => (await fetch(u!)).headers.get("content-type"), href)).toBe("image/webp");
+});
+
+test("régler une suggestion supprime ses captures, et seulement les siennes", async ({ page, gh }) => {
+  withSuggestions(gh, BYE, OPEN);
+  withShots(gh, "bye");
+  withShots(gh, "menu.open");
+  await login(page);
+  await card(page, "bye").getByRole("button", { name: "Mettre de côté" }).click();
+  await createPr(page);
+  await expect(page.getByText(/Pull request créée/)).toBeVisible();
+  expect(gh.deleted(shotPath("bye", "current"))).toBe(true);
+  expect(gh.deleted(shotPath("bye", "proposed"))).toBe(true);
+  expect(gh.deleted(shotPath("menu.open", "current"))).toBe(false);
+});
+
+test("une PR reprise supprime à nouveau les captures qu'elle avait retirées", async ({ page, gh }) => {
+  const REF = "i18n-review/202611181000-abcd";
+  const TOOL = "i18n : relecture\n\nCréé avec l'outil de relecture des traductions par Camille.";
+  const shot = shotPath("bye", "current");
+  gh.pulls[APP] = [{ number: 7, ref: REF, sha: "pr7", body: "Corps", autoMerge: true }];
+  gh.compares.pr7 = { mergeBase: "old", files: [FILE, shot, REVIEW], commits: [TOOL] };
+  gh.files[`${APP}@old:${FILE}`] = suggestions(BYE, OPEN);
+  gh.files[`${APP}@pr7:${FILE}`] = suggestions(OPEN);
+  gh.files[`${APP}@old:${REVIEW}`] = gh.files[`${APP}:${REVIEW}`];
+  gh.files[`${APP}@pr7:${REVIEW}`] = gh.files[`${APP}:${REVIEW}`];
+  withSuggestions(gh, BYE, OPEN);
+  withShots(gh, "bye");
+  await login(page);
+  await edit(page, "menu.open", "Aufmachen");
+  await createPr(page);
+  await expect(page.getByText(/Pull request #7 mise à jour/)).toBeVisible();
+  expect(gh.deleted(shot)).toBe(true);
 });
 
 test("sans dossier de suggestions, rien ne change", async ({ page }) => {
