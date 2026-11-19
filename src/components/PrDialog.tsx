@@ -98,7 +98,7 @@ function PrForm() {
       {clashes.length ? (
         <section className="flex flex-col gap-2" aria-labelledby="pr-clashes">
           <h3 id="pr-clashes" className="text-sm font-medium">
-            {clashes.length} texte{clashes.length > 1 ? "s" : ""} de ta PR #{clashes[0].pr} {clashes.length > 1 ? "changés" : "changé"} aussi sur la branche principale
+            {clashes.length} texte{clashes.length > 1 ? "s" : ""} de ta PR de relecture {clashes.length > 1 ? "changés" : "changé"} aussi sur la branche principale
           </h3>
           <p className="text-sm text-muted-foreground">Un développeur a modifié ces textes après ton envoi précédent. Choisis pour chacun ; rien n'est envoyé avant.</p>
           <div className="flex max-h-72 flex-col gap-2 overflow-auto">

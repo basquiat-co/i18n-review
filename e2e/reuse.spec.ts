@@ -111,6 +111,39 @@ test("si main change encore le texte après le choix d'Alex, rien n'est envoyé 
   await expect(dialog.getByRole("button", { name: "Créer la pull request" })).toBeDisabled();
 });
 
+test("garder sa version quand main a aussi changé la source : la clé repasse « source modifiée »", async ({ page, gh }) => {
+  openPr(gh, { clash: true });
+  const newSource = "{count, plural, one {# membre actif} other {# membres actifs}}";
+  gh.files[`${APP}@pr7:${FR_PATH}`] = json(FR);
+  gh.files[`${APP}:${FR_PATH}`] = json({ ...FR, members: newSource });
+  await login(page);
+  await edit(page, "bye", "Tschau");
+  await page.getByRole("button", { name: "Préparer la pull request" }).click();
+  await expect(clashNote(page)).toContainText(newSource);
+  await clashNote(page).getByRole("button", { name: "Garder ma version" }).click();
+  await page.getByRole("dialog").getByRole("button", { name: "Créer la pull request" }).click();
+
+  await expect(page.getByText(/Pull request #7 mise à jour/)).toBeVisible();
+  // relue face à la source qu'Alex avait en l'écrivant, pas face à la nouvelle
+  expect(JSON.parse(gh.written(REVIEW)!).sets.app.de.members).toBe(hash(FR.members) + " " + hash(PR_MEMBERS));
+});
+
+test("si le conflit disparaît après le choix d'Alex (main remis), rien n'est envoyé", async ({ page, gh }) => {
+  openPr(gh, { clash: true });
+  await login(page);
+  await edit(page, "bye", "Tschau");
+  await page.getByRole("button", { name: "Préparer la pull request" }).click();
+  const dialog = page.getByRole("dialog");
+  await clashNote(page).getByRole("button", { name: "Prendre celle de la branche principale" }).click();
+  gh.moveMain("m2", { [`${APP}:${DE_PATH}`]: json(DE) });
+  await dialog.getByRole("button", { name: "Créer la pull request" }).click();
+
+  await expect(dialog.getByRole("alert")).toContainText("Rien n'a été envoyé");
+  expect(gh.writes()).toBe(0);
+  await expect(clashNote(page)).toBeHidden();
+  await expect(dialog.getByRole("button", { name: "Créer la pull request" })).toBeEnabled();
+});
+
 test("une PR où un développeur a fusionné main (Update branch) est reprise", async ({ page, gh }) => {
   openPr(gh, { commits: [TOOL_COMMIT, "Merge branch 'main' into " + REF] });
   await login(page);

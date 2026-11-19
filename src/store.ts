@@ -258,7 +258,10 @@ async function preflight() {
   if (failed && (failed.reason as GhError).status === 401) { logout("Le jeton GitHub est refusé (expiré ou révoqué). Colle un nouveau jeton."); return; }
   const checkError = failed ? "Impossible de relire la branche principale : " + explain(failed.reason) : "";
   const dropped = results.flatMap(r => (r.status === "fulfilled" && r.value ? [r.value] : [])).join(" ");
-  set(s => ({ pr: { ...s.pr, checking: false, checkError, clashes, dropped: [s.pr.dropped, dropped].filter(Boolean).join(" ") } }));
+  // Un choix ne survit que si son conflit est encore là, sur le même texte de main ; sinon Alex choisit à nouveau.
+  const live = new Map(clashes.map(c => [clashKey(c), c]));
+  set(s => ({ pr: { ...s.pr, checking: false, checkError, clashes, dropped: [s.pr.dropped, dropped].filter(Boolean).join(" "),
+    choices: Object.fromEntries(Object.entries(s.pr.choices).filter(([k, ch]) => live.has(k) && live.get(k)!.main === ch.main)) } }));
 }
 
 /** Conflit avec la PR ouverte : Alex garde son texte ou prend celui de main (lié au texte de main qu'il a vu). */

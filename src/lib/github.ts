@@ -34,7 +34,11 @@ export class StaleDraftsError extends Error {
  * Une valeur qu'une relecture précédente a écrite dans la PR ouverte, et que main a changée depuis : Alex choisit à
  * l'envoi entre la sienne (mine) et celle de main (main, undefined si main a retiré la traduction).
  */
-export interface PrClash { pr: number; set: string; lang: string; id: string; segs: string[]; mine: string; main: string | undefined; source: string }
+export interface PrClash {
+  pr: number; set: string; lang: string; id: string; segs: string[]; mine: string; main: string | undefined;
+  source: string;   // texte source sur main aujourd'hui
+  prSource: string; // texte source dans la PR, celui qu'Alex avait sous les yeux en écrivant « mine »
+}
 /** Choix d'Alex pour un conflit, lié au texte de main qu'il a vu : si main change encore, il choisit à nouveau. */
 export interface ClashChoice { keep: "mine" | "main"; main: string | undefined }
 export const clashKey = (c: { set: string; lang: string; id: string }) => `${c.set}|${c.lang}|${c.id}`;
@@ -234,14 +238,20 @@ export class GitHub {
         const ch = choices[clashKey(c)];
         return !typed.has(clashKey(c)) && (!ch || ch.main !== c.main);
       });
-      if (undecided.length) throw new StaleDraftsError(undecided.map(clashKey));
+      // Un choix sans conflit correspondant : main a bougé depuis (texte remis, « Update branch »). Ce qu'Alex a
+      // choisi ne vaut plus ; rien n'est envoyé, et la fenêtre montre l'état actuel.
+      const current = new Set(clashes.map(clashKey));
+      const vanished = Object.keys(choices).filter(k => knownSet(k.split("|")[0]).repo === repo && !current.has(k));
+      if (undecided.length || vanished.length) throw new StaleDraftsError([...undecided.map(clashKey), ...vanished]);
       // Chaque choix devient une modification : « la mienne » réécrit sa valeur, « celle de main » la valide.
       const chosen = new Map<string, C.Draft>();
       for (const c of clashes) {
         const ch = choices[clashKey(c)];
         if (typed.has(clashKey(c)) || !ch || (ch.keep === "main" && c.main === undefined)) continue;
-        const value = ch.keep === "mine" ? c.mine : c.main!;
-        chosen.set(clashKey(c), { set: c.set, lang: c.lang, id: c.id, segs: c.segs, value, original: c.main ?? "", exists: c.main !== undefined, source: c.source, edited: ch.keep === "mine" });
+        const mine = ch.keep === "mine";
+        // « La mienne » est relue face à la source qu'Alex avait en l'écrivant : si main l'a changée, la clé repasse
+        // « source modifiée ». « Celle de main » est validée face à la source actuelle, montrée dans la fenêtre.
+        chosen.set(clashKey(c), { set: c.set, lang: c.lang, id: c.id, segs: c.segs, value: mine ? c.mine : c.main!, original: c.main ?? "", exists: c.main !== undefined, source: mine ? c.prSource : c.source, edited: mine });
       }
       drafts = [...drafts.filter(d => !chosen.has(clashKey(d))), ...chosen.values()];
       clashes = []; // tous tranchés : rien à signaler dans la description
@@ -383,6 +393,8 @@ export class GitHub {
       let sourceObj: C.JsonObject = parseJson(srcRaw, srcPath);
       const mainSource = C.toMap(C.flatten(sourceObj));
       const liveIds = new Set(mainSource.keys());
+      const prSrcRaw = await at(srcPath, open.sha);
+      const prSource = C.toMap(C.flatten(prSrcRaw === null ? {} : parseJson<C.JsonObject>(prSrcRaw, srcPath)));
       live.set(set.id, liveIds);
       for (const lang of [set.source, ...set.langs.filter(l => l !== set.source)]) {
         const path = filePath(set, lang);
@@ -394,7 +406,8 @@ export class GitHub {
         const mainMap = C.toMap(C.flatten(mainObj));
         for (const e of r.clashes) {
           skip.add(`${set.id}|${lang}|${e.id}`);
-          clashes.push({ pr: open.number, set: set.id, lang, id: e.id, segs: e.segs, mine: e.value, main: mainMap.get(e.id)?.value, source: mainSource.get(e.id)!.value });
+          clashes.push({ pr: open.number, set: set.id, lang, id: e.id, segs: e.segs, mine: e.value, main: mainMap.get(e.id)?.value,
+            source: mainSource.get(e.id)!.value, prSource: prSource.get(e.id)?.value ?? mainSource.get(e.id)!.value });
         }
         for (const e of r.edits) replayed.add(`${set.id}|${lang}|${e.id}`);
         const after = C.applyEdits(mainRaw ?? "{}\n", sourceObj, r.edits);
