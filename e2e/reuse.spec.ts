@@ -9,8 +9,8 @@ const MAIN_MEMBERS = "{count, plural, one {# Mitglied} other {# Mitglieder (neu)
 
 const TOOL_COMMIT = "i18n : relecture allemand du 17.11.2026\n\nCréé avec l'outil de relecture des traductions par Camille Relectrice.";
 
-function openPr(gh: FakeGitHub, { files = [DE_PATH, REVIEW], commits = [TOOL_COMMIT], state = "open", merged = false, autoMerge = true } = {}) {
-  gh.pulls[APP] = [{ number: 7, ref: REF, sha: "pr7", body: "Corps initial", state, merged, autoMerge }];
+function openPr(gh: FakeGitHub, { files = [DE_PATH, REVIEW], commits = [TOOL_COMMIT], state = "open", merged = false } = {}) {
+  gh.pulls[APP] = [{ number: 7, ref: REF, sha: "pr7", body: "Corps initial", state, merged }];
   gh.compares.pr7 = { mergeBase: "old", files, commits };
   const review = JSON.parse(gh.files[`${APP}:${REVIEW}`]);
   gh.files[`${APP}@old:${FR_PATH}`] = json({ ...FR, gone: "Parti" });
@@ -37,7 +37,6 @@ test("une PR de l'outil ouverte est reprise sur la dernière version de main, sa
 
   const notice = page.getByText(/Pull request #7 mise à jour dans basquiat-co\/basquiat-app\./);
   await expect(notice).toBeVisible();
-  await expect(notice).toContainText("fusionnée automatiquement");
   await expect(notice).toContainText("1 clé a aussi changé sur main depuis la PR #7");
   await expect(page.getByRole("link", { name: "Ouvrir la PR #7" })).toBeVisible();
 
@@ -58,18 +57,6 @@ test("une PR de l'outil ouverte est reprise sur la dernière version de main, sa
   expect(body.startsWith("Corps initial\n\n---\n\n### Mise à jour du ")).toBe(true);
   expect(body).toContain("| `bye` | de |");
   expect(body).toContain("- `members (de)`");
-  expect(gh.posts.graphql).toHaveLength(0); // une PR reprise garde son réglage de fusion automatique
-});
-
-test("une PR reprise dont la fusion automatique a été retirée ne la retrouve pas", async ({ page, gh }) => {
-  openPr(gh, { autoMerge: false });
-  await login(page);
-  await edit(page, "bye", "Tschau");
-  await createPr(page);
-  const notice = page.getByText(/Pull request #7 mise à jour/);
-  await expect(notice).toBeVisible();
-  await expect(notice).not.toContainText("automatiquement");
-  expect(gh.posts.graphql).toHaveLength(0);
 });
 
 test("une PR ouverte où quelqu'un a commité à la main n'est pas reprise : nouvelle PR", async ({ page, gh }) => {
@@ -165,22 +152,12 @@ test("si la branche de la PR ouverte refuse la mise à jour, rien n'est perdu", 
   expect(gh.posts.pulls).toHaveLength(0);
 });
 
-test("fusion automatique désactivée dans le dépôt : rien n'est demandé ni signalé", async ({ page, gh }) => {
-  gh.allowAutoMerge = false;
+test("une nouvelle PR ne demande aucune fusion automatique", async ({ page, gh }) => {
   await login(page);
   await edit(page, "bye", "Tschau");
   await createPr(page);
   const notice = page.getByText(/Pull request créée dans basquiat-co\/basquiat-app\./);
   await expect(notice).toBeVisible();
   await expect(notice).not.toContainText("automatique");
-  expect(gh.posts.graphql).toHaveLength(0);
-});
-
-test("fusion automatique refusée par GitHub : la PR est créée, la raison est dite", async ({ page, gh }) => {
-  gh.autoMergeError = "Pull request is in clean status";
-  await login(page);
-  await edit(page, "bye", "Tschau");
-  await createPr(page);
-  await expect(page.getByText(/Fusion automatique non activée : Pull request is in clean status/)).toBeVisible();
-  await expect(page.getByRole("link", { name: "Ouvrir la PR #1" })).toBeVisible();
+  expect(gh.calls.filter(c => c.includes("/graphql"))).toHaveLength(0);
 });

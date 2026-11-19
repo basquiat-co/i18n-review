@@ -20,7 +20,6 @@ export interface SetData {
 export interface CreatedPr {
   repo: string; url: string; number: number;
   updated: boolean;   // une PR déjà ouverte a été reprise
-  autoMerge: boolean; // GitHub la fusionnera dès que les vérifications passent
   notes: string[];    // avertissements : la PR existe, mais quelque chose mérite d'être dit
 }
 
@@ -32,7 +31,7 @@ export class StaleDraftsError extends Error {
 }
 
 // PR de l'outil reprise par une nouvelle relecture.
-interface OpenPr { number: number; url: string; body: string; autoMerge: boolean; ref: string; sha: string; mergeBase: string; files: string[] }
+interface OpenPr { number: number; url: string; body: string; ref: string; sha: string; mergeBase: string; files: string[] }
 
 // Signature des commits de l'outil : une PR dont un commit ne la porte pas a été modifiée à la main.
 const TOOL_MARK = "Créé avec l'outil de relecture des traductions";
@@ -273,7 +272,7 @@ export class GitHub {
 
     // Une fois la branche avancée, lever seulement si rien n'a abouti : une erreur garde les modifications dans le
     // navigateur, et elles seraient sinon envoyées une seconde fois.
-    let pr: { number: number; html_url: string; node_id?: string } | null = null;
+    let pr: { number: number; html_url: string } | null = null;
     if (open && await this.moveBranch(repo, open, newCommit.sha)) {
       const st = await this.prState(repo, open.number);
       if (st.state === "open") pr = { number: open.number, html_url: open.url };
@@ -286,31 +285,28 @@ export class GitHub {
       if (body.length > 65000) notes.push(`La description de la PR #${pr.number} est trop longue pour y ajouter ce résumé.`);
       else await this.request(`/repos/${repo}/pulls/${pr.number}`, { method: "PATCH", body: { body } })
         .catch(() => notes.push(`La description de la PR #${pr!.number} n'a pas pu être mise à jour.`));
-      // Une PR reprise garde son réglage de fusion automatique : un développeur a pu la retenir exprès.
-      return { repo, url: pr.html_url, number: pr.number, updated: true, autoMerge: open!.autoMerge, notes };
+      return { repo, url: pr.html_url, number: pr.number, updated: true, notes };
     }
     const stamp = new Date().toISOString().replace(/[-:T]/g, "").slice(0, 12);
     const branch = `${BRANCH_PREFIX}${stamp}-${Math.random().toString(36).slice(2, 6)}`;
     await this.request(`/repos/${repo}/git/refs`, { method: "POST", body: { ref: "refs/heads/" + branch, sha: newCommit.sha } });
     try {
-      pr = await this.request<{ html_url: string; number: number; node_id?: string }>(`/repos/${repo}/pulls`, { method: "POST", body: { title, head: branch, base: head.branch, body: section } });
+      pr = await this.request<{ html_url: string; number: number }>(`/repos/${repo}/pulls`, { method: "POST", body: { title, head: branch, base: head.branch, body: section } });
     } catch (e) {
       // La PR reprise a été fusionnée avec le nouveau commit : il n'y a plus rien à proposer, la relecture est passée.
       if (open && (e as GhError).status === 422 && /no commits between/i.test((e as GhError).message)) {
-        return { repo, url: open.url, number: open.number, updated: true, autoMerge: false, notes: [...notes, `La PR #${open.number} a été fusionnée avec cette relecture.`] };
+        return { repo, url: open.url, number: open.number, updated: true, notes: [...notes, `La PR #${open.number} a été fusionnée avec cette relecture.`] };
       }
       throw e;
     }
-    const autoMerge = pr.node_id ? await this.enableAutoMerge(repo, pr.node_id) : { on: false };
-    if (autoMerge.error) notes.push(`Fusion automatique non activée : ${autoMerge.error}`);
-    return { repo, url: pr.html_url, number: pr.number, updated: false, autoMerge: autoMerge.on, notes };
+    return { repo, url: pr.html_url, number: pr.number, updated: false, notes };
   }
 
   // PR ouverte par l'outil que la relecture peut reprendre : la plus récente dont tous les commits viennent de l'outil
   // et tous les fichiers sont des fichiers relus du dépôt. Un commit fait à la main (des tests, une clé supprimée, la
   // branche principale fusionnée dedans) ne serait pas rejoué fidèlement : la PR n'est alors pas reprise.
   private async reusablePr(repo: string, mainSha: string): Promise<OpenPr | null> {
-    type Pr = { number: number; html_url: string; body?: string | null; auto_merge?: unknown; head?: { ref?: string; sha: string; repo?: { full_name: string } } };
+    type Pr = { number: number; html_url: string; body?: string | null; head?: { ref?: string; sha: string; repo?: { full_name: string } } };
     const prs = (await this.request<Pr[]>(`/repos/${repo}/pulls?state=open&per_page=50`))
       .filter(p => p.head?.ref?.startsWith(BRANCH_PREFIX) && p.head.repo?.full_name === repo)
       .sort((a, b) => b.number - a.number);
@@ -323,7 +319,7 @@ export class GitHub {
       // GitHub tronque les listes (250 commits, 300 fichiers) : une PR aussi grande n'est pas une PR de l'outil seul.
       if (files.length >= 300 || (cmp.total_commits ?? commits.length) !== commits.length) continue;
       if (!files.every(f => allowed.has(f)) || !commits.every(c => c.commit.message.includes(TOOL_MARK))) continue;
-      return { number: p.number, url: p.html_url, body: p.body || "", autoMerge: !!p.auto_merge, ref: p.head!.ref!, sha: p.head!.sha, mergeBase: cmp.merge_base_commit.sha, files };
+      return { number: p.number, url: p.html_url, body: p.body || "", ref: p.head!.ref!, sha: p.head!.sha, mergeBase: cmp.merge_base_commit.sha, files };
     }
     return null;
   }
@@ -382,27 +378,6 @@ export class GitHub {
       if (st.merged) return false;
       if (st.state !== "open") throw new Error(`La PR #${open.number} a été fermée pendant l'envoi. Réessaie : une nouvelle PR sera créée.`);
       throw e;
-    }
-  }
-
-  // Demande à GitHub de fusionner la PR dès que les vérifications requises passent. Ne fusionne jamais directement.
-  // Un dépôt qui n'autorise pas la fusion automatique est un réglage, pas une erreur : rien n'est signalé.
-  private async enableAutoMerge(repo: string, nodeId: string): Promise<{ on: boolean; error?: string }> {
-    try {
-      const r = await this.request<{ allow_auto_merge?: boolean; allow_merge_commit?: boolean; allow_squash_merge?: boolean }>(`/repos/${repo}`);
-      if (r.allow_auto_merge === false) return { on: false };
-      const mergeMethod = r.allow_merge_commit !== false ? "MERGE" : r.allow_squash_merge !== false ? "SQUASH" : "REBASE";
-      const res = await this.request<{ errors?: { message: string }[] }>("/graphql", {
-        method: "POST",
-        body: {
-          query: "mutation($id: ID!, $method: PullRequestMergeMethod!) { enablePullRequestAutoMerge(input: { pullRequestId: $id, mergeMethod: $method }) { clientMutationId } }",
-          variables: { id: nodeId, method: mergeMethod },
-        },
-      });
-      if (res.errors?.length) return { on: false, error: res.errors.map(e => e.message).join(" ; ") };
-      return { on: true };
-    } catch (e) {
-      return { on: false, error: explain(e, repo) };
     }
   }
 }

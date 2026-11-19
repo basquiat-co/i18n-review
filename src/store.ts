@@ -266,7 +266,6 @@ export async function submitPr(title: string, note: string) {
   const done = () => {
     for (const r of results) {
       const text = (r.updated ? `Pull request #${r.number} mise à jour dans ${r.repo}.` : `Pull request créée dans ${r.repo}.`) +
-        (r.autoMerge ? " Elle sera fusionnée automatiquement dès que les vérifications passent." : "") +
         r.notes.map(n => " " + n).join("");
       notify("ok", text, { href: r.url, text: "Ouvrir la PR #" + r.number });
     }
