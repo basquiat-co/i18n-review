@@ -60,6 +60,7 @@ function PrForm() {
         {update ? (
           <DialogDescription>
             {pr.checking ? `Recherche de ta PR de relecture ouverte dans ${set.repo}…`
+              : pr.checkError ? "Ta PR de relecture n'a pas pu être relue : rien ne peut être mis à jour pour l'instant."
               : !target ? `Aucune PR de relecture ouverte que l'outil peut reprendre dans ${set.repo} : rien à mettre à jour.`
               : pr.target!.upToDate ? `La PR #${target.number} est déjà à jour avec la branche principale.`
               : `La PR #${target.number} sera rejouée sur la dernière version de la branche principale, sans nouvelle relecture : GitHub pourra ensuite la fusionner.`}
@@ -85,7 +86,7 @@ function PrForm() {
       {pr.refused || pr.checkError || pr.dropped ? (
         <div role="alert" className="flex flex-col gap-1 rounded-lg border border-[color:var(--st-source)] bg-[color:color-mix(in_oklab,var(--st-source)_8%,transparent)] px-3 py-2 text-sm">
           {pr.refused ? <p>Rien n'a été envoyé : la branche principale a changé pendant ta relecture.{conflicts.length || undecided.length ? " Revois les textes ci-dessous, puis crée la pull request." : ""}</p> : null}
-          {pr.checkError ? <p>{pr.checkError}{pr.refused ? "" : " L'envoi la vérifiera de toute façon."}</p> : null}
+          {pr.checkError ? <p>{pr.checkError}{pr.refused || update ? "" : " L'envoi la vérifiera de toute façon."}</p> : null}
           {pr.dropped ? <p>{pr.dropped}</p> : null}
         </div>
       ) : null}

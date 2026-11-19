@@ -327,11 +327,11 @@ export class GitHub {
     // Une fois la branche avancée, lever seulement si rien n'a abouti : une erreur garde les modifications dans le
     // navigateur, et elles seraient sinon envoyées une seconde fois.
     let pr: { number: number; html_url: string } | null = null;
-    if (open && await this.moveBranch(repo, open, newCommit.sha)) {
+    if (open && await this.moveBranch(repo, open, newCommit.sha, updateOnly)) {
       const st = await this.prState(repo, open.number);
       if (st.state === "open") pr = { number: open.number, html_url: open.url };
       // Fermée sans fusion juste après la mise à jour : rien n'a abouti, l'envoi peut être refait.
-      else if (!st.merged) throw new Error(`La PR #${open.number} a été fermée pendant l'envoi. Réessaie : une nouvelle PR sera créée.`);
+      else if (!st.merged) throw new Error(closedDuringSend(open.number, updateOnly));
       // Sinon fusionnée pendant l'envoi, avec ou sans le nouveau commit : une nouvelle PR le porte (plus bas).
     }
     if (pr) {
@@ -341,6 +341,8 @@ export class GitHub {
         .catch(() => notes.push(`La description de la PR #${pr!.number} n'a pas pu être mise à jour.`));
       return { repo, url: pr.html_url, number: pr.number, updated: true, notes };
     }
+    // « Mettre à jour ma PR » n'ouvre jamais de PR : fusionnée entre-temps, il n'y a plus rien à mettre à jour.
+    if (updateOnly) return { repo, url: open!.url, number: open!.number, updated: true, notes: [...notes, `La PR #${open!.number} a été fusionnée pendant la mise à jour : il n'y a plus rien à faire.`] };
     const stamp = new Date().toISOString().replace(/[-:T]/g, "").slice(0, 12);
     const branch = `${BRANCH_PREFIX}${stamp}-${Math.random().toString(36).slice(2, 6)}`;
     await this.request(`/repos/${repo}/git/refs`, { method: "POST", body: { ref: "refs/heads/" + branch, sha: newCommit.sha } });
@@ -448,18 +450,22 @@ export class GitHub {
 
   // Avance la branche de la PR (sans forcer : le nouveau commit descend de sa dernière version). false si la PR a été
   // fusionnée entre-temps (sa branche a pu être supprimée) ; sinon l'erreur est levée et rien n'a bougé.
-  private async moveBranch(repo: string, open: OpenPr, sha: string): Promise<boolean> {
+  private async moveBranch(repo: string, open: OpenPr, sha: string, updateOnly: boolean): Promise<boolean> {
     try {
       await this.request(`/repos/${repo}/git/refs/heads/${encPath(open.ref)}`, { method: "PATCH", body: { sha, force: false } });
       return true;
     } catch (e) {
       const st = await this.prState(repo, open.number);
       if (st.merged) return false;
-      if (st.state !== "open") throw new Error(`La PR #${open.number} a été fermée pendant l'envoi. Réessaie : une nouvelle PR sera créée.`);
+      if (st.state !== "open") throw new Error(closedDuringSend(open.number, updateOnly));
       throw e;
     }
   }
 }
+
+const closedDuringSend = (n: number, updateOnly: boolean) => updateOnly
+  ? `La PR #${n} a été fermée pendant la mise à jour : il n'y a plus de PR à mettre à jour.`
+  : `La PR #${n} a été fermée pendant l'envoi. Réessaie : une nouvelle PR sera créée.`;
 
 // Corps de la PR (ou de la section ajoutée à une PR reprise) : note, résumé, corrections, conflits avec main.
 function describeReview(note: string, lines: string[], corrections: C.Draft[], clashes: string[], mainBranch: string): string {

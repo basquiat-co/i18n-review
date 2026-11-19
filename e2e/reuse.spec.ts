@@ -306,3 +306,25 @@ test("sans PR de relecture ouverte, pas de bouton « Mettre à jour ma PR »", a
   await expect(page.getByRole("button", { name: "Préparer la pull request" })).toBeDisabled();
   await expect(updateButton(page)).toBeHidden();
 });
+
+test("« Mettre à jour ma PR » quand la PR est fusionnée pendant la mise à jour : aucune nouvelle PR", async ({ page, gh }) => {
+  openPr(gh);
+  gh.mergeOnMove = true;
+  await login(page);
+  await updateButton(page).click();
+  await page.getByRole("dialog").getByRole("button", { name: "Mettre à jour la PR" }).click();
+  await expect(page.getByText(/La PR #7 a été fusionnée pendant la mise à jour/)).toBeVisible();
+  expect(gh.posts.refs).toHaveLength(0);
+  expect(gh.posts.pulls).toHaveLength(0);
+});
+
+test("« Mettre à jour ma PR » quand la PR ne peut pas être relue : la fenêtre le dit, rien n'est possible", async ({ page, gh }) => {
+  openPr(gh);
+  await login(page);
+  gh.mainStatus = 500;
+  await updateButton(page).click();
+  const dialog = page.getByRole("dialog");
+  await expect(dialog).toContainText("Ta PR de relecture n'a pas pu être relue");
+  await expect(dialog.getByRole("alert")).not.toContainText("L'envoi la vérifiera");
+  await expect(dialog.getByRole("button", { name: "Mettre à jour la PR" })).toBeDisabled();
+});
