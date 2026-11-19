@@ -35,7 +35,7 @@ function PrForm() {
   const list = Object.values(drafts);
   // Seuls les conflits restent : le reste a été réglé à la relecture de main (validation, retrait).
   const conflicts = pr.mode === "drafts" ? driftedDrafts(drafts, data).filter(x => needsChoice(x.drift)) : [];
-  const blocked = pr.submitting || pr.checking || conflicts.length > 0;
+  const blocked = pr.submitting || pr.checking || conflicts.length > 0 || (pr.mode === "drafts" && !list.length);
   const set = setById(pr.setId);
   const byRepo = [...new Set(list.map(d => setById(d.set).repo))];
   const edited = list.filter(d => d.edited);
@@ -67,10 +67,11 @@ function PrForm() {
       {pr.mode === "drafts" && pr.checking ? (
         <p role="status" className="flex items-center gap-2 text-sm text-muted-foreground"><Loader2 className="size-4 animate-spin" />Comparaison avec la dernière version de la branche principale…</p>
       ) : null}
-      {pr.refused || pr.checkError ? (
+      {pr.refused || pr.checkError || pr.dropped ? (
         <div role="alert" className="flex flex-col gap-1 rounded-lg border border-[color:var(--st-source)] bg-[color:color-mix(in_oklab,var(--st-source)_8%,transparent)] px-3 py-2 text-sm">
           {pr.refused ? <p>Rien n'a été envoyé : la branche principale a changé pendant ta relecture.{conflicts.length ? " Revois les corrections ci-dessous, puis crée la pull request." : ""}</p> : null}
           {pr.checkError ? <p>{pr.checkError}{pr.refused ? "" : " L'envoi la vérifiera de toute façon."}</p> : null}
+          {pr.dropped ? <p>{pr.dropped}</p> : null}
         </div>
       ) : null}
       {conflicts.length ? (

@@ -8,7 +8,6 @@ import { refresh, setSearch, useApp } from "@/store";
 export function Toolbar({ countLine, canValidate, onValidate }: { countLine: string; canValidate: boolean; onValidate: () => void }) {
   const search = useApp(s => s.search);
   const loading = useApp(s => s.loading);
-  const checkedAt = useApp(s => s.checkedAt[s.setId]);
   const [q, setQ] = useState(search);
   // Remis à zéro quand on change de fichiers (sans retirer l'espace qu'on est en train de taper).
   useEffect(() => setQ(prev => (prev.trim() === search ? prev : search)), [search]);
@@ -28,11 +27,6 @@ export function Toolbar({ countLine, canValidate, onValidate }: { countLine: str
         <span className="min-w-0 truncate text-sm text-muted-foreground">{countLine}</span>
       </div>
       <div className="flex flex-wrap items-center gap-2">
-        {checkedAt ? (
-          <span className="text-xs text-muted-foreground" title="Vérifié chaque minute tant que la page est ouverte">
-            À jour avec la branche principale · {new Date(checkedAt).toLocaleTimeString("fr-CH", { hour: "2-digit", minute: "2-digit" })}
-          </span>
-        ) : null}
         <Button variant="outline" size="sm" className="bg-card" disabled={!canValidate} onClick={onValidate}><CheckCheck />Valider les lignes affichées</Button>
         <Button variant="outline" size="sm" className="bg-card" disabled={loading} onClick={() => refresh(true)}>
           <RefreshCw className={cn(loading && "animate-spin")} />Recharger depuis GitHub

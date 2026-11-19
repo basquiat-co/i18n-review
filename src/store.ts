@@ -19,13 +19,13 @@ interface AppState {
   shown: number;
   data: Record<string, SetData>;
   loading: boolean;
-  checkedAt: Record<string, number>; // dernière fois que main a été comparé à ce qui est affiché, par jeu
   drafts: Drafts;
   orphans: Drafts;
   rawRows: Record<string, true>; // cellules affichées en texte brut plutôt que forme par forme
   notices: Notice[];
-  // checkError : la relecture de main avant l'envoi a échoué (affiché dans la fenêtre, qui cache les messages).
-  pr: { open: boolean; mode: PrMode; setId: string; submitting: boolean; checking: boolean; refused: boolean; checkError: string };
+  // checkError : la relecture de main avant l'envoi a échoué ; dropped : les validations qu'elle a retirées. Tous deux
+  // affichés dans la fenêtre, qui cache les messages.
+  pr: { open: boolean; mode: PrMode; setId: string; submitting: boolean; checking: boolean; refused: boolean; checkError: string; dropped: string };
   theme: storage.Theme;
 }
 
@@ -42,12 +42,11 @@ export const useApp = create<AppState>(() => ({
   shown: PAGE,
   data: {},
   loading: false,
-  checkedAt: {},
   drafts: storage.loadDrafts(),
   orphans: storage.loadOrphans(),
   rawRows: {},
   notices: [],
-  pr: { open: false, mode: "drafts", setId: SETS[0].id, submitting: false, checking: false, refused: false, checkError: "" },
+  pr: { open: false, mode: "drafts", setId: SETS[0].id, submitting: false, checking: false, refused: false, checkError: "", dropped: "" },
   theme: storage.loadTheme(),
 }));
 
@@ -75,15 +74,12 @@ export async function login(token: string, remember: boolean) {
   client = gh;
   storage.saveToken(token, remember);
   set({ booting: false, user, loginError: "" });
-  watchMain();
   await refresh();
 }
 
 export function logout(message?: string) {
   client = null;
   generation++;
-  ticking = false;
-  unwatch?.();
   storage.clearToken();
   set({ user: null, data: {}, loginError: message || "", notices: [], pr: { ...get().pr, open: false, submitting: false, checking: false } });
 }
@@ -108,8 +104,9 @@ export async function refresh(force = false) {
   try {
     const loaded = await client.loadSet(setById(setId));
     if (gen !== generation) return;
-    set(s => ({ data: { ...s.data, [setId]: loaded }, checkedAt: { ...s.checkedAt, [setId]: Date.now() } }));
-    reconcile(setId);
+    set(s => ({ data: { ...s.data, [setId]: loaded } }));
+    const dropped = reconcile(setId);
+    if (dropped) notify("warn", dropped);
   } catch (e) {
     if ((e as GhError).status === 401) { logout("Le jeton GitHub est refusé (expiré ou révoqué). Colle un nouveau jeton."); return; }
     notify("error", "Impossible de charger les fichiers. " + explain(e, setById(setId).repo));
@@ -118,43 +115,17 @@ export async function refresh(force = false) {
   }
 }
 
-/* ================= Main toujours à jour ================= */
-// Ce qui est affiché suit main sans qu'Alex ait à recharger : une vérification par minute tant que l'onglet est
-// visible, et dès qu'il y revient. Une vérification lit le sha de main (1 requête) ; s'il a bougé, la comparaison
-// dit si un fichier relu a changé (1 requête) ; seulement alors les fichiers sont relus.
+/* ================= Comparaison avec main, à l'envoi ================= */
+// Main n'est relue qu'à l'ouverture de la fenêtre d'envoi et pendant l'envoi, jamais en fond : 1 requête pour son
+// sha ; s'il a bougé, la comparaison dit si un fichier relu a changé (1 requête) ; seulement alors les fichiers sont
+// relus. « Recharger depuis GitHub » relit tout à la demande.
 let generation = 0; // change à chaque envoi, rechargement demandé ou déconnexion : un résultat plus ancien est jeté
-let unwatch: (() => void) | null = null;
-let ticking = false;
-const CHECK_EVERY = 60_000;
 
-function watchMain() {
-  unwatch?.();
-  const tick = () => { if (!document.hidden) void checkMain(); };
-  const timer = window.setInterval(tick, CHECK_EVERY);
-  document.addEventListener("visibilitychange", tick);
-  window.addEventListener("focus", tick);
-  unwatch = () => {
-    clearInterval(timer);
-    document.removeEventListener("visibilitychange", tick);
-    window.removeEventListener("focus", tick);
-    unwatch = null;
-  };
-}
-
-// Vérification en fond du jeu affiché : jamais de message en cas d'échec (le réseau reviendra à la suivante).
-export async function checkMain() {
-  const { setId, pr, loading } = get();
-  if (ticking || !client || loading || pr.submitting || pr.checking) return;
-  ticking = true;
-  try { await freshen(setId); }
-  catch (e) { if ((e as GhError).status === 401) logout("Le jeton GitHub est refusé (expiré ou révoqué). Colle un nouveau jeton."); }
-  finally { ticking = false; }
-}
-
-/** Remet un jeu à jour avec main s'il a bougé ; lève l'erreur de GitHub, à l'appelant de dire s'il l'affiche. */
-async function freshen(setId: string) {
+/** Remet un jeu à jour avec main s'il a bougé et rend le message des validations retirées ; lève l'erreur de
+ *  GitHub, à l'appelant de dire s'il l'affiche. */
+async function freshen(setId: string): Promise<string> {
   const c = client;
-  if (!c) return;
+  if (!c) return "";
   const gen = generation;
   const fileSet = setById(setId);
   const old = get().data[setId];
@@ -164,41 +135,24 @@ async function freshen(setId: string) {
     const head = await c.repoHead(fileSet.repo);
     if (head.sha !== old.sha) next = await c.touchesReviewed(fileSet.repo, old.sha, head.sha) ? await c.loadSet(fileSet) : { ...old, sha: head.sha };
   }
-  if (next) await untilFieldLeft();
-  if (gen !== generation || c !== client) return;
-  set(s => ({ ...(next ? { data: { ...s.data, [setId]: next } } : {}), checkedAt: { ...s.checkedAt, [setId]: Date.now() } }));
-  reconcile(setId);
-}
-
-// Les champs ne sont pas contrôlés et sont recréés quand leur texte change : remplacer les données pendant
-// qu'Alex tape dans un champ effacerait sa saisie. On attend qu'il le quitte (sa sortie de champ enregistre la
-// modification, que la comparaison avec main signale ensuite si main a changé ce texte).
-// Le champ peut aussi disparaître sans perdre le focus (bouton « Valider », qui garde le focus dans le champ, puis
-// le recrée) : certains navigateurs n'émettent alors aucun blur, d'où la vérification régulière.
-function untilFieldLeft(): Promise<void> {
-  const a = document.activeElement;
-  if (!(a instanceof HTMLTextAreaElement) || !a.closest("#rows") || a.value === a.defaultValue) return Promise.resolve();
-  return new Promise(resolve => {
-    const done = () => { clearInterval(poll); a.removeEventListener("blur", onBlur); setTimeout(resolve, 0); };
-    const onBlur = () => done();
-    const poll = window.setInterval(() => { if (!a.isConnected || document.activeElement !== a) done(); }, 500);
-    a.addEventListener("blur", onBlur);
-  });
+  if (gen !== generation || c !== client) return "";
+  if (next) set(s => ({ data: { ...s.data, [setId]: next } }));
+  return reconcile(setId);
 }
 
 // Modifications d'un jeu face à main : celle que main contient déjà devient une validation ; celle qui n'a plus
-// d'objet (clé supprimée, validation d'un texte qui a changé) est retirée, avec un message ; un conflit reste,
-// signalé sur la ligne et dans la fenêtre d'envoi.
-function reconcile(setId: string) {
+// d'objet (clé supprimée, validation d'un texte qui a changé) est retirée, et le message qui le dit est rendu ; un
+// conflit reste, signalé sur la ligne et dans la fenêtre d'envoi.
+function reconcile(setId: string): string {
   const loaded = get().data[setId];
   // Source absente ou vide sur main (fichier déplacé, en cours de réécriture) : toutes les clés sembleraient
   // supprimées. On ne touche à rien ; l'envoi le refusera en nommant le fichier.
-  if (!loaded || !loaded.flat[setById(setId).source]?.length) return;
+  if (!loaded || !loaded.flat[setById(setId).source]?.length) return "";
   // Relu sur l'ordinateur plutôt qu'en mémoire : un autre onglet a pu enregistrer des modifications depuis, et
-  // cette mise à jour en fond ne doit pas les écraser.
+  // cette mise à jour ne doit pas les écraser.
   const drafts = { ...storage.loadDrafts() };
   const drifted = driftedDrafts(drafts, get().data, setId);
-  if (!drifted.some(x => x.drift === "absorbed" || x.drift.startsWith("dropped"))) return;
+  if (!drifted.some(x => x.drift === "absorbed" || x.drift.startsWith("dropped"))) return "";
   const next = { ...drafts };
   const dropped: string[] = [];
   for (const x of drifted) {
@@ -206,10 +160,9 @@ function reconcile(setId: string) {
     else if (x.drift.startsWith("dropped")) { delete next[x.key]; dropped.push(`${x.draft.id} (${x.draft.lang})`); }
   }
   saveDrafts(next);
-  if (dropped.length) {
-    const n = dropped.length, list = dropped.slice(0, 5).join(", ") + (n > 5 ? `, et ${n - 5} autre${n > 6 ? "s" : ""}` : "");
-    notify("warn", `${n} validation${n > 1 ? "s retirées" : " retirée"} : la branche principale a supprimé la clé, ou changé le texte que tu avais validé tel quel (${list}). Relis ${n > 1 ? "ces lignes" : "cette ligne"} si besoin.`);
-  }
+  if (!dropped.length) return "";
+  const n = dropped.length, list = dropped.slice(0, 5).join(", ") + (n > 5 ? `, et ${n - 5} autre${n > 6 ? "s" : ""}` : "");
+  return `${n} validation${n > 1 ? "s retirées" : " retirée"} : la branche principale a supprimé la clé, ou changé le texte que tu avais validé tel quel (${list}). Relis ${n > 1 ? "ces lignes" : "cette ligne"} si besoin.`;
 }
 
 /** Conflit : garder ma correction, désormais comparée au texte actuel de main. */
@@ -229,7 +182,7 @@ export const takeMain = (key: string) => {
 export function selectSet(id: string) {
   storage.saveSetId(id);
   set({ setId: id, shown: PAGE, search: "" });
-  if (get().data[id]) void checkMain(); else void refresh();
+  void refresh();
 }
 
 export function toggleLang(lang: string) {
@@ -279,7 +232,7 @@ export function deleteOrphans() {
 // Pendant la création, le panneau ne peut être ni fermé ni rouvert : un second envoi créerait une PR en double.
 export function openPr(mode: PrMode, setId = get().setId) {
   if (get().pr.submitting) return;
-  set({ pr: { open: true, mode, setId, submitting: false, checking: mode === "drafts", refused: false, checkError: "" } });
+  set({ pr: { open: true, mode, setId, submitting: false, checking: mode === "drafts", refused: false, checkError: "", dropped: "" } });
   if (mode === "drafts") void preflight();
 }
 
@@ -295,7 +248,8 @@ async function preflight() {
   const failed = results.find((r): r is PromiseRejectedResult => r.status === "rejected");
   if (failed && (failed.reason as GhError).status === 401) { logout("Le jeton GitHub est refusé (expiré ou révoqué). Colle un nouveau jeton."); return; }
   const checkError = failed ? "Impossible de relire la branche principale : " + explain(failed.reason) : "";
-  set(s => ({ pr: { ...s.pr, checking: false, checkError } }));
+  const dropped = results.flatMap(r => (r.status === "fulfilled" && r.value ? [r.value] : [])).join(" ");
+  set(s => ({ pr: { ...s.pr, checking: false, checkError, dropped: [s.pr.dropped, dropped].filter(Boolean).join(" ") } }));
 }
 export function closePr() {
   if (get().pr.submitting) return;
@@ -305,7 +259,7 @@ export function closePr() {
 export async function submitPr(title: string, note: string) {
   const { pr, user } = get();
   if (pr.submitting || pr.checking || !client) return;
-  generation++; // une vérification en fond ne doit pas remplacer les données pendant l'envoi
+  generation++; // une relecture de main encore en cours ne doit pas remplacer les données pendant l'envoi
   set({ pr: { ...pr, submitting: true } });
   const who = user ? (user.name || user.login) : "relecture";
   const results: CreatedPr[] = [];
