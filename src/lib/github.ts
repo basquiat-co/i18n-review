@@ -30,6 +30,15 @@ export class StaleDraftsError extends Error {
   }
 }
 
+/**
+ * Une valeur qu'une relecture précédente a écrite dans la PR ouverte, et que main a changée depuis : Alex choisit à
+ * l'envoi entre la sienne (mine) et celle de main (main, undefined si main a retiré la traduction).
+ */
+export interface PrClash { pr: number; set: string; lang: string; id: string; segs: string[]; mine: string; main: string | undefined; source: string }
+/** Choix d'Alex pour un conflit, lié au texte de main qu'il a vu : si main change encore, il choisit à nouveau. */
+export interface ClashChoice { keep: "mine" | "main"; main: string | undefined }
+export const clashKey = (c: { set: string; lang: string; id: string }) => `${c.set}|${c.lang}|${c.id}`;
+
 // PR de l'outil reprise par une nouvelle relecture.
 interface OpenPr { number: number; url: string; body: string; ref: string; sha: string; mergeBase: string; files: string[] }
 
@@ -183,7 +192,7 @@ export class GitHub {
   // Une seule PR de l'outil ouverte par dépôt : si une PR ouverte ne contient que des fichiers relus, elle est
   // reconstruite sur la dernière version de la branche principale et la relecture y est ajoutée. Sinon (aucune PR,
   // ou des fichiers ajoutés à la main, des tests par exemple), une nouvelle branche et une nouvelle PR sont créées.
-  async createPr(repo: string, title: string, note: string, who: string, { drafts, initSet }: { drafts?: C.Draft[]; initSet?: string }): Promise<CreatedPr> {
+  async createPr(repo: string, title: string, note: string, who: string, { drafts, initSet, choices = {} }: { drafts?: C.Draft[]; initSet?: string; choices?: Record<string, ClashChoice> }): Promise<CreatedPr> {
     const head = await this.repoHead(repo);
 
     // Fichiers lus sur la branche principale (une lecture par chemin) et contenus à écrire, par chemin.
@@ -202,7 +211,7 @@ export class GitHub {
 
     const mainReview = C.parseReview(await atMain(REVIEW_FILE));
     let review = mainReview;
-    let clashes: string[] = [];
+    let clashes: PrClash[] = [];
     let replayed = new Set<string>();
     const notes: string[] = [];
     if (open) {
@@ -214,7 +223,28 @@ export class GitHub {
         open = null;
         out.clear();
         review = mainReview;
+        clashes = [];
       }
+    }
+    // Avant toute écriture : chaque conflit avec la PR reprise a été tranché par Alex, sur le texte de main actuel.
+    // Une correction tapée sur la clé le tranche aussi : la plus récente l'emporte.
+    if (drafts) {
+      const typed = new Set(drafts.filter(d => d.edited).map(clashKey));
+      const undecided = clashes.filter(c => {
+        const ch = choices[clashKey(c)];
+        return !typed.has(clashKey(c)) && (!ch || ch.main !== c.main);
+      });
+      if (undecided.length) throw new StaleDraftsError(undecided.map(clashKey));
+      // Chaque choix devient une modification : « la mienne » réécrit sa valeur, « celle de main » la valide.
+      const chosen = new Map<string, C.Draft>();
+      for (const c of clashes) {
+        const ch = choices[clashKey(c)];
+        if (typed.has(clashKey(c)) || !ch || (ch.keep === "main" && c.main === undefined)) continue;
+        const value = ch.keep === "mine" ? c.mine : c.main!;
+        chosen.set(clashKey(c), { set: c.set, lang: c.lang, id: c.id, segs: c.segs, value, original: c.main ?? "", exists: c.main !== undefined, source: c.source, edited: ch.keep === "mine" });
+      }
+      drafts = [...drafts.filter(d => !chosen.has(clashKey(d))), ...chosen.values()];
+      clashes = []; // tous tranchés : rien à signaler dans la description
     }
     const lines: string[] = [];
 
@@ -267,7 +297,7 @@ export class GitHub {
     const newCommit = await this.request<{ sha: string }>(`/repos/${repo}/git/commits`, { method: "POST", body: { message, tree: newTree.sha, parents: open ? [open.sha, head.sha] : [head.sha] } });
 
     const corrections = drafts ? drafts.filter(d => d.edited) : [];
-    const section = describeReview(note, lines, corrections, clashes, head.branch);
+    const section = describeReview(note, lines, corrections, clashes.map(c => `${c.id} (${c.lang})`), head.branch);
     if (clashes.length) notes.push(`${clashes.length} clé${clashes.length > 1 ? "s ont" : " a"} aussi changé sur ${head.branch} depuis la PR #${open!.number} : le texte de ${head.branch} est gardé et ${clashes.length > 1 ? "ces clés repassent" : "la clé repasse"} à relire.`);
 
     // Une fois la branche avancée, lever seulement si rien n'a abouti : une erreur garde les modifications dans le
@@ -302,9 +332,23 @@ export class GitHub {
     return { repo, url: pr.html_url, number: pr.number, updated: false, notes };
   }
 
+  /**
+   * Conflits entre la PR de relecture ouverte et main tel qu'il est : lus à l'ouverture de la fenêtre d'envoi, pour
+   * qu'Alex les tranche avant d'envoyer. Rien n'est écrit.
+   */
+  async prClashes(repo: string): Promise<PrClash[]> {
+    const head = await this.repoHead(repo);
+    const open = await this.reusablePr(repo, head.sha);
+    if (!open) return [];
+    const atMain = (path: string) => this.getFile(repo, path, head.sha);
+    // L'état de relecture rejoué n'est pas utilisé ici : inutile de lire celui de main, qui pèse lourd.
+    return (await this.replayPr(repo, open, C.emptyReview(), atMain, new Map())).clashes;
+  }
+
   // PR ouverte par l'outil que la relecture peut reprendre : la plus récente dont tous les commits viennent de l'outil
-  // et tous les fichiers sont des fichiers relus du dépôt. Un commit fait à la main (des tests, une clé supprimée, la
-  // branche principale fusionnée dedans) ne serait pas rejoué fidèlement : la PR n'est alors pas reprise.
+  // et tous les fichiers sont des fichiers relus du dépôt. Un commit fait à la main (des tests, une clé supprimée) ne
+  // serait pas rejoué fidèlement : la PR n'est alors pas reprise. Un commit de fusion (« Update branch », un conflit
+  // réglé sur GitHub) est accepté : le rejeu part de la base commune, qu'il a avancée.
   private async reusablePr(repo: string, mainSha: string): Promise<OpenPr | null> {
     type Pr = { number: number; html_url: string; body?: string | null; head?: { ref?: string; sha: string; repo?: { full_name: string } } };
     const prs = (await this.request<Pr[]>(`/repos/${repo}/pulls?state=open&per_page=50`))
@@ -312,13 +356,13 @@ export class GitHub {
       .sort((a, b) => b.number - a.number);
     const allowed = reviewedPaths(repo);
     for (const p of prs) {
-      type Cmp = { merge_base_commit: { sha: string }; total_commits?: number; commits?: { commit: { message: string } }[]; files?: { filename: string }[] };
+      type Cmp = { merge_base_commit: { sha: string }; total_commits?: number; commits?: { commit: { message: string }; parents?: unknown[] }[]; files?: { filename: string }[] };
       const cmp = await this.request<Cmp>(`/repos/${repo}/compare/${mainSha}...${p.head!.sha}`);
       const files = (cmp.files || []).map(f => f.filename);
       const commits = cmp.commits || [];
       // GitHub tronque les listes (250 commits, 300 fichiers) : une PR aussi grande n'est pas une PR de l'outil seul.
       if (files.length >= 300 || (cmp.total_commits ?? commits.length) !== commits.length) continue;
-      if (!files.every(f => allowed.has(f)) || !commits.every(c => c.commit.message.includes(TOOL_MARK))) continue;
+      if (!files.every(f => allowed.has(f)) || !commits.every(c => c.commit.message.includes(TOOL_MARK) || (c.parents?.length ?? 0) > 1)) continue;
       return { number: p.number, url: p.html_url, body: p.body || "", ref: p.head!.ref!, sha: p.head!.sha, mergeBase: cmp.merge_base_commit.sha, files };
     }
     return null;
@@ -329,7 +373,7 @@ export class GitHub {
   private async replayPr(repo: string, open: OpenPr, mainReview: C.Review, atMain: (path: string) => Promise<string | null>, out: Map<string, string>) {
     const at = (path: string, sha: string) => this.getFile(repo, path, sha);
     const skip = new Set<string>();
-    const clashes: string[] = [];
+    const clashes: PrClash[] = [];
     const live = new Map<string, Set<string>>();
     const replayed = new Set<string>(); // « jeu|langue|clé » dont la PR a écrit la valeur
     for (const set of SETS.filter(s => s.repo === repo)) {
@@ -337,15 +381,21 @@ export class GitHub {
       const srcRaw = await atMain(srcPath);
       if (srcRaw === null) continue;
       let sourceObj: C.JsonObject = parseJson(srcRaw, srcPath);
-      const liveIds = new Set(C.flatten(sourceObj).map(e => e.id));
+      const mainSource = C.toMap(C.flatten(sourceObj));
+      const liveIds = new Set(mainSource.keys());
       live.set(set.id, liveIds);
       for (const lang of [set.source, ...set.langs.filter(l => l !== set.source)]) {
         const path = filePath(set, lang);
         if (!open.files.includes(path)) continue;
         const [baseRaw, headRaw, mainRaw] = await Promise.all([at(path, open.mergeBase), at(path, open.sha), atMain(path)]);
         if (headRaw === null) continue;
-        const r = C.replayValues(parseJson(baseRaw ?? "{}", path), parseJson(headRaw, path), parseJson(mainRaw ?? "{}", path), liveIds);
-        for (const id of r.clashes) { skip.add(`${set.id}|${lang}|${id}`); clashes.push(`${id} (${lang})`); }
+        const mainObj: C.JsonObject = parseJson(mainRaw ?? "{}", path);
+        const r = C.replayValues(parseJson(baseRaw ?? "{}", path), parseJson(headRaw, path), mainObj, liveIds);
+        const mainMap = C.toMap(C.flatten(mainObj));
+        for (const e of r.clashes) {
+          skip.add(`${set.id}|${lang}|${e.id}`);
+          clashes.push({ pr: open.number, set: set.id, lang, id: e.id, segs: e.segs, mine: e.value, main: mainMap.get(e.id)?.value, source: mainSource.get(e.id)!.value });
+        }
         for (const e of r.edits) replayed.add(`${set.id}|${lang}|${e.id}`);
         const after = C.applyEdits(mainRaw ?? "{}\n", sourceObj, r.edits);
         if (after === null) continue;

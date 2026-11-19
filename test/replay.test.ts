@@ -19,9 +19,10 @@ test("replayValues : une clé supprimée sur main n'est pas recréée", () => {
   assert.deepEqual(r, { edits: [], clashes: [] });
 });
 
-test("replayValues : une valeur changée aussi sur main garde le texte de main et part dans clashes", () => {
+test("replayValues : une valeur changée aussi sur main n'est pas rejouée et part dans clashes, avec la valeur de la PR", () => {
   const r = C.replayValues({ a: "A" }, { a: "A (PR)" }, { a: "A (main)" }, ids("a"));
-  assert.deepEqual(r, { edits: [], clashes: ["a"] });
+  assert.deepEqual(r.edits, []);
+  assert.deepEqual(r.clashes.map(e => [e.id, e.value]), [["a", "A (PR)"]]);
 });
 
 test("replayValues : une valeur déjà identique sur main n'est ni rejouée ni en conflit", () => {

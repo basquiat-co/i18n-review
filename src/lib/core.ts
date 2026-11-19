@@ -424,15 +424,16 @@ export function initReview(review: Review, setId: string, sourceLang: string, la
 /**
  * Valeurs qu'une PR a écrites dans une langue (base : son point de départ, head : sa dernière version),
  * à rejouer sur main. Une clé absente de la source sur main (liveIds) a été supprimée : elle n'est pas recréée.
- * Une valeur que main a aussi changée depuis la base garde le texte de main : elle part dans clashes.
+ * Une valeur que main a aussi changée depuis la base n'est pas rejouée : elle part dans clashes (la valeur de la PR),
+ * et Alex choisit à l'envoi.
  */
-export function replayValues(base: JsonObject, head: JsonObject, main: JsonObject, liveIds: Set<string>): { edits: FlatEntry[]; clashes: string[] } {
+export function replayValues(base: JsonObject, head: JsonObject, main: JsonObject, liveIds: Set<string>): { edits: FlatEntry[]; clashes: FlatEntry[] } {
   const b = toMap(flatten(base)), m = toMap(flatten(main));
-  const edits: FlatEntry[] = [], clashes: string[] = [];
+  const edits: FlatEntry[] = [], clashes: FlatEntry[] = [];
   for (const e of flatten(head)) {
     const bv = b.get(e.id)?.value, mv = m.get(e.id)?.value;
     if (e.value === bv || e.value === mv || !liveIds.has(e.id)) continue;
-    if (mv !== bv) clashes.push(e.id); else edits.push(e);
+    if (mv !== bv) clashes.push(e); else edits.push(e);
   }
   return { edits, clashes };
 }

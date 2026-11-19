@@ -70,7 +70,8 @@ export class FakeGitHub {
     if ((m = p.match(/^\/repos\/([^/]+\/[^/]+)$/))) return json(200, { default_branch: "main", full_name: m[1], allow_merge_commit: true });
     if ((m = p.match(/^\/repos\/([^/]+\/[^/]+)\/compare\/([^.]+)\.\.\.(.+)$/))) {
       const c = this.compares[m[3]] || { mergeBase: "base", files: [] };
-      const commits = (c.commits || []).map(message => ({ commit: { message } }));
+      // « Merge … » : commit de fusion (deux parents), comme le bouton « Update branch » de GitHub.
+      const commits = (c.commits || []).map(message => ({ commit: { message }, parents: message.startsWith("Merge ") ? [{}, {}] : [{}] }));
       return json(200, { merge_base_commit: { sha: c.mergeBase }, total_commits: commits.length, commits, files: c.files.map(filename => ({ filename })) });
     }
     if ((m = p.match(/^\/repos\/([^/]+\/[^/]+)\/git\/refs\/heads\/(.+)$/)) && method === "PATCH") {

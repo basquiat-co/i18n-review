@@ -5,9 +5,10 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { DriftNote } from "@/components/DriftNote";
+import { ClashNote, DriftNote } from "@/components/DriftNote";
 import { REVIEW_FILE, langName, setById } from "@/lib/config";
 import { needsChoice } from "@/lib/core";
+import { clashKey } from "@/lib/github";
 import { driftedDrafts } from "@/lib/rows";
 import { closePr, submitPr, useApp } from "@/store";
 
@@ -35,7 +36,10 @@ function PrForm() {
   const list = Object.values(drafts);
   // Seuls les conflits restent : le reste a été réglé à la relecture de main (validation, retrait).
   const conflicts = pr.mode === "drafts" ? driftedDrafts(drafts, data).filter(x => needsChoice(x.drift)) : [];
-  const blocked = pr.submitting || pr.checking || conflicts.length > 0 || (pr.mode === "drafts" && !list.length);
+  // Conflits avec la PR ouverte ; une correction tapée sur la clé les tranche déjà (la plus récente l'emporte).
+  const clashes = pr.mode === "drafts" ? pr.clashes.filter(c => !drafts[clashKey(c)]?.edited) : [];
+  const undecided = clashes.filter(c => pr.choices[clashKey(c)]?.main !== c.main || !pr.choices[clashKey(c)]);
+  const blocked = pr.submitting || pr.checking || conflicts.length > 0 || undecided.length > 0 || (pr.mode === "drafts" && !list.length);
   const set = setById(pr.setId);
   const byRepo = [...new Set(list.map(d => setById(d.set).repo))];
   const edited = list.filter(d => d.edited);
@@ -69,7 +73,7 @@ function PrForm() {
       ) : null}
       {pr.refused || pr.checkError || pr.dropped ? (
         <div role="alert" className="flex flex-col gap-1 rounded-lg border border-[color:var(--st-source)] bg-[color:color-mix(in_oklab,var(--st-source)_8%,transparent)] px-3 py-2 text-sm">
-          {pr.refused ? <p>Rien n'a été envoyé : la branche principale a changé pendant ta relecture.{conflicts.length ? " Revois les corrections ci-dessous, puis crée la pull request." : ""}</p> : null}
+          {pr.refused ? <p>Rien n'a été envoyé : la branche principale a changé pendant ta relecture.{conflicts.length || undecided.length ? " Revois les textes ci-dessous, puis crée la pull request." : ""}</p> : null}
           {pr.checkError ? <p>{pr.checkError}{pr.refused ? "" : " L'envoi la vérifiera de toute façon."}</p> : null}
           {pr.dropped ? <p>{pr.dropped}</p> : null}
         </div>
@@ -85,6 +89,23 @@ function PrForm() {
               <div key={x.key} className="flex flex-col gap-1">
                 <span className="font-mono text-xs break-all">{x.draft.id} <span className="uppercase">· {x.draft.lang}</span></span>
                 <DriftNote draftKey={x.key} draft={x.draft} now={x.now} gone={x.drift === "gone"} />
+              </div>
+            ))}
+          </div>
+        </section>
+      ) : null}
+
+      {clashes.length ? (
+        <section className="flex flex-col gap-2" aria-labelledby="pr-clashes">
+          <h3 id="pr-clashes" className="text-sm font-medium">
+            {clashes.length} texte{clashes.length > 1 ? "s" : ""} de ta PR #{clashes[0].pr} {clashes.length > 1 ? "changés" : "changé"} aussi sur la branche principale
+          </h3>
+          <p className="text-sm text-muted-foreground">Un développeur a modifié ces textes après ton envoi précédent. Choisis pour chacun ; rien n'est envoyé avant.</p>
+          <div className="flex max-h-72 flex-col gap-2 overflow-auto">
+            {clashes.map(c => (
+              <div key={clashKey(c)} className="flex flex-col gap-1">
+                <span className="font-mono text-xs break-all">{c.id} <span className="uppercase">· {c.lang}</span></span>
+                <ClashNote clash={c} choice={pr.choices[clashKey(c)]} />
               </div>
             ))}
           </div>

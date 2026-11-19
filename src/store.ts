@@ -1,7 +1,7 @@
 import { create } from "zustand";
 import { rebaseDraft, type Drafts } from "@/lib/core";
 import { PAGE, SETS, knownSet, setById, type FilterKey } from "@/lib/config";
-import { GhError, GitHub, StaleDraftsError, explain, type CreatedPr, type GhUser, type SetData } from "@/lib/github";
+import { GhError, GitHub, StaleDraftsError, clashKey, explain, type ClashChoice, type CreatedPr, type GhUser, type PrClash, type SetData } from "@/lib/github";
 import { activeLangs, applyEdit, draftKey, driftedDrafts, removeDrafts, validateCells, type Cell } from "@/lib/rows";
 import * as storage from "@/lib/storage";
 
@@ -24,8 +24,10 @@ interface AppState {
   rawRows: Record<string, true>; // cellules affichées en texte brut plutôt que forme par forme
   notices: Notice[];
   // checkError : la relecture de main avant l'envoi a échoué ; dropped : les validations qu'elle a retirées. Tous deux
-  // affichés dans la fenêtre, qui cache les messages.
-  pr: { open: boolean; mode: PrMode; setId: string; submitting: boolean; checking: boolean; refused: boolean; checkError: string; dropped: string };
+  // affichés dans la fenêtre, qui cache les messages. clashes : textes de la PR ouverte que main a changés depuis ;
+  // choices : ce qu'Alex a choisi pour chacun (gardé pendant l'envoi seulement).
+  pr: { open: boolean; mode: PrMode; setId: string; submitting: boolean; checking: boolean; refused: boolean; checkError: string; dropped: string;
+    clashes: PrClash[]; choices: Record<string, ClashChoice> };
   theme: storage.Theme;
 }
 
@@ -46,7 +48,7 @@ export const useApp = create<AppState>(() => ({
   orphans: storage.loadOrphans(),
   rawRows: {},
   notices: [],
-  pr: { open: false, mode: "drafts", setId: SETS[0].id, submitting: false, checking: false, refused: false, checkError: "", dropped: "" },
+  pr: { open: false, mode: "drafts", setId: SETS[0].id, submitting: false, checking: false, refused: false, checkError: "", dropped: "", clashes: [], choices: {} },
   theme: storage.loadTheme(),
 }));
 
@@ -232,24 +234,36 @@ export function deleteOrphans() {
 // Pendant la création, le panneau ne peut être ni fermé ni rouvert : un second envoi créerait une PR en double.
 export function openPr(mode: PrMode, setId = get().setId) {
   if (get().pr.submitting) return;
-  set({ pr: { open: true, mode, setId, submitting: false, checking: mode === "drafts", refused: false, checkError: "", dropped: "" } });
+  set({ pr: { open: true, mode, setId, submitting: false, checking: mode === "drafts", refused: false, checkError: "", dropped: "", clashes: [], choices: {} } });
   if (mode === "drafts") void preflight();
 }
 
-// À l'ouverture de la fenêtre d'envoi : chaque jeu qui a des modifications est remis à jour avec main, pour que
-// les conflits s'y affichent avant l'envoi (y compris pour une langue masquée ou un autre jeu).
+// À l'ouverture de la fenêtre d'envoi : chaque jeu qui a des modifications est remis à jour avec main, et la PR de
+// relecture ouverte de chaque dépôt comparée à main, pour que les conflits s'y affichent avant l'envoi (y compris
+// pour une langue masquée ou un autre jeu).
 // Chaque jeu est attendu, même si un autre échoue ; seule la dernière vérification lancée rend la main.
 let preflightSeq = 0;
 async function preflight() {
   const seq = ++preflightSeq;
   const sets = [...new Set(Object.values(get().drafts).map(d => d.set))];
-  const results = await Promise.allSettled(sets.map(freshen));
+  const repos = [...new Set(sets.map(id => knownSet(id).repo))];
+  const c = client;
+  const [results, clashResults] = await Promise.all([
+    Promise.allSettled(sets.map(freshen)),
+    Promise.allSettled(repos.map(r => c ? c.prClashes(r) : Promise.resolve([]))),
+  ]);
   if (seq !== preflightSeq) return;
-  const failed = results.find((r): r is PromiseRejectedResult => r.status === "rejected");
+  const clashes = clashResults.flatMap(r => (r.status === "fulfilled" ? r.value : []));
+  const failed = [...results, ...clashResults].find((r): r is PromiseRejectedResult => r.status === "rejected");
   if (failed && (failed.reason as GhError).status === 401) { logout("Le jeton GitHub est refusé (expiré ou révoqué). Colle un nouveau jeton."); return; }
   const checkError = failed ? "Impossible de relire la branche principale : " + explain(failed.reason) : "";
   const dropped = results.flatMap(r => (r.status === "fulfilled" && r.value ? [r.value] : [])).join(" ");
-  set(s => ({ pr: { ...s.pr, checking: false, checkError, dropped: [s.pr.dropped, dropped].filter(Boolean).join(" ") } }));
+  set(s => ({ pr: { ...s.pr, checking: false, checkError, clashes, dropped: [s.pr.dropped, dropped].filter(Boolean).join(" ") } }));
+}
+
+/** Conflit avec la PR ouverte : Alex garde son texte ou prend celui de main (lié au texte de main qu'il a vu). */
+export function chooseClash(c: PrClash, keep: ClashChoice["keep"]) {
+  set(s => ({ pr: { ...s.pr, choices: { ...s.pr.choices, [clashKey(c)]: { keep, main: c.main } } } }));
 }
 export function closePr() {
   if (get().pr.submitting) return;
@@ -277,7 +291,7 @@ export async function submitPr(title: string, note: string) {
       const repos = [...new Set(Object.values(get().drafts).map(d => knownSet(d.set).repo))];
       for (const repo of repos) {
         const drafts = Object.values(get().drafts).filter(d => knownSet(d.set).repo === repo);
-        results.push(await client.createPr(repo, title, note, who, { drafts }));
+        results.push(await client.createPr(repo, title, note, who, { drafts, choices: get().pr.choices }));
         const left = { ...get().drafts };
         for (const d of drafts) delete left[draftKey(d.set, d.lang, d.id)];
         saveDrafts(left);
