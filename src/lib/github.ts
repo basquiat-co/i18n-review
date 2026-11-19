@@ -43,6 +43,13 @@ export interface PrClash {
 export interface ClashChoice { keep: "mine" | "main"; main: string | undefined }
 export const clashKey = (c: { set: string; lang: string; id: string }) => `${c.set}|${c.lang}|${c.id}`;
 
+/** PR de relecture ouverte d'un dépôt, vue à l'ouverture de la fenêtre d'envoi. */
+export interface ReviewPrState {
+  pr: { number: number; url: string } | null;
+  upToDate: boolean; // la PR contient déjà la dernière version de main : rien à rejouer
+  clashes: PrClash[];
+}
+
 // PR de l'outil reprise par une nouvelle relecture.
 interface OpenPr { number: number; url: string; body: string; ref: string; sha: string; mergeBase: string; files: string[] }
 
@@ -196,7 +203,8 @@ export class GitHub {
   // Une seule PR de l'outil ouverte par dépôt : si une PR ouverte ne contient que des fichiers relus, elle est
   // reconstruite sur la dernière version de la branche principale et la relecture y est ajoutée. Sinon (aucune PR,
   // ou des fichiers ajoutés à la main, des tests par exemple), une nouvelle branche et une nouvelle PR sont créées.
-  async createPr(repo: string, title: string, note: string, who: string, { drafts, initSet, choices = {} }: { drafts?: C.Draft[]; initSet?: string; choices?: Record<string, ClashChoice> }): Promise<CreatedPr> {
+  // updateOnly : sans nouvelle relecture, rejoue seulement la PR ouverte sur main (« Mettre à jour ma PR »).
+  async createPr(repo: string, title: string, note: string, who: string, { drafts, initSet, choices = {}, updateOnly = false }: { drafts?: C.Draft[]; initSet?: string; choices?: Record<string, ClashChoice>; updateOnly?: boolean }): Promise<CreatedPr> {
     const head = await this.repoHead(repo);
 
     // Fichiers lus sur la branche principale (une lecture par chemin) et contenus à écrire, par chemin.
@@ -210,6 +218,10 @@ export class GitHub {
 
     const commit = await this.request<{ tree: { sha: string } }>(`/repos/${repo}/git/commits/${head.sha}`);
     let open = await this.reusablePr(repo, head.sha);
+    if (updateOnly) {
+      if (!open) throw new Error(`Aucune PR de relecture ouverte que l'outil peut reprendre dans ${repo} : rien à mettre à jour.`);
+      if (open.mergeBase === head.sha) return { repo, url: open.url, number: open.number, updated: true, notes: ["Elle était déjà à jour avec la branche principale : rien n'a été écrit."] };
+    }
     const out = new Map<string, string>();
     const current = async (path: string) => out.has(path) ? out.get(path)! : atMain(path);
 
@@ -223,6 +235,7 @@ export class GitHub {
         ({ review, clashes, replayed } = await this.replayPr(repo, open, mainReview, atMain, out));
       } catch (e) {
         // Une PR dont un fichier est illisible sur sa branche ne doit pas bloquer les envois : nouvelle PR.
+        if (updateOnly) throw new Error(`La PR #${open.number} n'a pas pu être relue (${explain(e, repo)}). Rien n'a été écrit.`);
         notes.push(`La PR #${open.number} n'a pas pu être reprise (${explain(e, repo)}) : une nouvelle PR est créée.`);
         open = null;
         out.clear();
@@ -296,6 +309,7 @@ export class GitHub {
         lines.push(`- **${set.label}**, ${langName(lang)} (\`${path}\`) : ${ed} correction${ed > 1 ? "s" : ""}, ${ld.length - ed} validation${ld.length - ed > 1 ? "s" : ""} sans changement.`);
       }
     }
+    if (updateOnly) lines.push(`- Rejouée sur la dernière version de ${head.branch}, sans nouvelle relecture.`);
     out.set(REVIEW_FILE, C.serializeReview(review));
 
     const tree = [...out].map(([path, content]) => ({ path, mode: "100644", type: "blob", content }));
@@ -346,13 +360,15 @@ export class GitHub {
    * Conflits entre la PR de relecture ouverte et main tel qu'il est : lus à l'ouverture de la fenêtre d'envoi, pour
    * qu'Alex les tranche avant d'envoyer. Rien n'est écrit.
    */
-  async prClashes(repo: string): Promise<PrClash[]> {
+  async reviewPr(repo: string): Promise<ReviewPrState> {
     const head = await this.repoHead(repo);
     const open = await this.reusablePr(repo, head.sha);
-    if (!open) return [];
+    if (!open) return { pr: null, upToDate: false, clashes: [] };
+    const pr = { number: open.number, url: open.url };
+    if (open.mergeBase === head.sha) return { pr, upToDate: true, clashes: [] };
     const atMain = (path: string) => this.getFile(repo, path, head.sha);
     // L'état de relecture rejoué n'est pas utilisé ici : inutile de lire celui de main, qui pèse lourd.
-    return (await this.replayPr(repo, open, C.emptyReview(), atMain, new Map())).clashes;
+    return { pr, upToDate: false, clashes: (await this.replayPr(repo, open, C.emptyReview(), atMain, new Map())).clashes };
   }
 
   // PR ouverte par l'outil que la relecture peut reprendre : la plus récente dont tous les commits viennent de l'outil

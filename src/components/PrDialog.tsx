@@ -37,30 +37,41 @@ function PrForm() {
   // Seuls les conflits restent : le reste a été réglé à la relecture de main (validation, retrait).
   const conflicts = pr.mode === "drafts" ? driftedDrafts(drafts, data).filter(x => needsChoice(x.drift)) : [];
   // Conflits avec la PR ouverte ; une correction tapée sur la clé les tranche déjà (la plus récente l'emporte).
-  const clashes = pr.mode === "drafts" ? pr.clashes.filter(c => !drafts[clashKey(c)]?.edited) : [];
+  const update = pr.mode === "update";
+  const clashes = pr.mode === "drafts" ? pr.clashes.filter(c => !drafts[clashKey(c)]?.edited) : update ? pr.clashes : [];
   const undecided = clashes.filter(c => pr.choices[clashKey(c)]?.main !== c.main || !pr.choices[clashKey(c)]);
-  const blocked = pr.submitting || pr.checking || conflicts.length > 0 || undecided.length > 0 || (pr.mode === "drafts" && !list.length);
+  const blocked = pr.submitting || pr.checking || conflicts.length > 0 || undecided.length > 0 || (pr.mode === "drafts" && !list.length) ||
+    (update && (!pr.target?.pr || pr.target.upToDate));
+  const target = pr.target?.pr;
   const set = setById(pr.setId);
   const byRepo = [...new Set(list.map(d => setById(d.set).repo))];
   const edited = list.filter(d => d.edited);
   const langs = [...new Set(list.map(d => langName(d.lang)))].join(", ");
   const [title, setTitle] = useState(() => pr.mode === "init"
     ? `i18n : état de relecture initial pour ${set.label}`
+    : update ? "i18n : PR de relecture mise à jour sur la branche principale"
     : `i18n : relecture ${langs} du ${new Date().toLocaleDateString("fr-CH")}`);
   const [note, setNote] = useState("");
 
   return (
     <form className="contents" onSubmit={e => { e.preventDefault(); void submitPr(title.trim() || "i18n : relecture", note.trim()); }}>
       <DialogHeader>
-        <DialogTitle className="flex items-center gap-2 text-lg"><GitPullRequestArrow className="size-5 text-primary" />Créer la pull request</DialogTitle>
-        <DialogDescription>
+        <DialogTitle className="flex items-center gap-2 text-lg"><GitPullRequestArrow className="size-5 text-primary" />{update ? "Mettre à jour ma PR de relecture" : "Créer la pull request"}</DialogTitle>
+        {update ? (
+          <DialogDescription>
+            {pr.checking ? `Recherche de ta PR de relecture ouverte dans ${set.repo}…`
+              : !target ? `Aucune PR de relecture ouverte que l'outil peut reprendre dans ${set.repo} : rien à mettre à jour.`
+              : pr.target!.upToDate ? `La PR #${target.number} est déjà à jour avec la branche principale.`
+              : `La PR #${target.number} sera rejouée sur la dernière version de la branche principale, sans nouvelle relecture : GitHub pourra ensuite la fusionner.`}
+          </DialogDescription>
+        ) : <DialogDescription>
           {pr.mode === "init"
             ? `La pull request ajoutera ${REVIEW_FILE} dans ${set.repo} et marquera comme relues toutes les clés actuelles de « ${set.label} » (${set.langs.map(langName).join(", ")}). Les clés sans traduction restent à faire.`
             : byRepo.length > 1
               ? `Une pull request sera créée dans chacun de ces dépôts : ${byRepo.join(", ")}.`
               : `La pull request sera créée dans ${byRepo[0]}.`}
           {" "}Si une pull request de relecture ouverte ne contient que des traductions, tes modifications y sont ajoutées, sur la dernière version du dépôt.
-        </DialogDescription>
+        </DialogDescription>}
       </DialogHeader>
 
       <div className="flex flex-col gap-2">
@@ -68,7 +79,7 @@ function PrForm() {
         <Input id="pr-title" value={title} onChange={e => setTitle(e.target.value)} autoFocus />
       </div>
 
-      {pr.mode === "drafts" && pr.checking ? (
+      {pr.mode !== "init" && pr.checking ? (
         <p role="status" className="flex items-center gap-2 text-sm text-muted-foreground"><Loader2 className="size-4 animate-spin" />Comparaison avec la dernière version de la branche principale…</p>
       ) : null}
       {pr.refused || pr.checkError || pr.dropped ? (
@@ -151,7 +162,7 @@ function PrForm() {
       <DialogFooter>
         <Button type="button" variant="outline" disabled={pr.submitting} onClick={closePr}>Fermer</Button>
         <Button type="submit" disabled={blocked}>
-          {pr.submitting ? <><Loader2 className="animate-spin" />Création en cours…</> : "Créer la pull request"}
+          {pr.submitting ? <><Loader2 className="animate-spin" />{update ? "Mise à jour en cours…" : "Création en cours…"}</> : update ? "Mettre à jour la PR" : "Créer la pull request"}
         </Button>
       </DialogFooter>
     </form>

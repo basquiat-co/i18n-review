@@ -1,12 +1,14 @@
 import { create } from "zustand";
 import { rebaseDraft, type Drafts } from "@/lib/core";
 import { PAGE, SETS, knownSet, setById, type FilterKey } from "@/lib/config";
-import { GhError, GitHub, StaleDraftsError, clashKey, explain, type ClashChoice, type CreatedPr, type GhUser, type PrClash, type SetData } from "@/lib/github";
+import { GhError, GitHub, StaleDraftsError, clashKey, explain, type ClashChoice, type CreatedPr, type GhUser, type PrClash, type ReviewPrState, type SetData } from "@/lib/github";
 import { activeLangs, applyEdit, draftKey, driftedDrafts, removeDrafts, validateCells, type Cell } from "@/lib/rows";
 import * as storage from "@/lib/storage";
 
 export interface Notice { id: number; kind: "ok" | "warn" | "error"; text: string; link?: { href: string; text: string } }
-export type PrMode = "drafts" | "init";
+// drafts : envoyer la relecture ; init : marquer l'existant comme relu ; update : rejouer la PR ouverte sur main, sans
+// nouvelle relecture (« Mettre à jour ma PR »).
+export type PrMode = "drafts" | "init" | "update";
 
 interface AppState {
   booting: boolean;          // connexion automatique avec un jeton enregistré
@@ -27,7 +29,7 @@ interface AppState {
   // affichés dans la fenêtre, qui cache les messages. clashes : textes de la PR ouverte que main a changés depuis ;
   // choices : ce qu'Alex a choisi pour chacun (gardé pendant l'envoi seulement).
   pr: { open: boolean; mode: PrMode; setId: string; submitting: boolean; checking: boolean; refused: boolean; checkError: string; dropped: string;
-    clashes: PrClash[]; choices: Record<string, ClashChoice> };
+    clashes: PrClash[]; choices: Record<string, ClashChoice>; target: ReviewPrState | null /* update : la PR du dépôt */ };
   theme: storage.Theme;
 }
 
@@ -48,7 +50,7 @@ export const useApp = create<AppState>(() => ({
   orphans: storage.loadOrphans(),
   rawRows: {},
   notices: [],
-  pr: { open: false, mode: "drafts", setId: SETS[0].id, submitting: false, checking: false, refused: false, checkError: "", dropped: "", clashes: [], choices: {} },
+  pr: { open: false, mode: "drafts", setId: SETS[0].id, submitting: false, checking: false, refused: false, checkError: "", dropped: "", clashes: [], choices: {}, target: null },
   theme: storage.loadTheme(),
 }));
 
@@ -234,8 +236,9 @@ export function deleteOrphans() {
 // Pendant la création, le panneau ne peut être ni fermé ni rouvert : un second envoi créerait une PR en double.
 export function openPr(mode: PrMode, setId = get().setId) {
   if (get().pr.submitting) return;
-  set({ pr: { open: true, mode, setId, submitting: false, checking: mode === "drafts", refused: false, checkError: "", dropped: "", clashes: [], choices: {} } });
-  if (mode === "drafts") void preflight();
+  const checking = mode !== "init";
+  set({ pr: { open: true, mode, setId, submitting: false, checking, refused: false, checkError: "", dropped: "", clashes: [], choices: {}, target: null } });
+  if (checking) void preflight();
 }
 
 // À l'ouverture de la fenêtre d'envoi : chaque jeu qui a des modifications est remis à jour avec main, et la PR de
@@ -245,22 +248,26 @@ export function openPr(mode: PrMode, setId = get().setId) {
 let preflightSeq = 0;
 async function preflight() {
   const seq = ++preflightSeq;
-  const sets = [...new Set(Object.values(get().drafts).map(d => d.set))];
-  const repos = [...new Set(sets.map(id => knownSet(id).repo))];
+  const { mode, setId } = get().pr;
+  // « Mettre à jour ma PR » ne concerne que le dépôt affiché, sans modification à comparer.
+  const sets = mode === "update" ? [] : [...new Set(Object.values(get().drafts).map(d => d.set))];
+  const repos = mode === "update" ? [knownSet(setId).repo] : [...new Set(sets.map(id => knownSet(id).repo))];
   const c = client;
+  const none: ReviewPrState = { pr: null, upToDate: false, clashes: [] };
   const [results, clashResults] = await Promise.all([
     Promise.allSettled(sets.map(freshen)),
-    Promise.allSettled(repos.map(r => c ? c.prClashes(r) : Promise.resolve([]))),
+    Promise.allSettled(repos.map(r => c ? c.reviewPr(r) : Promise.resolve(none))),
   ]);
   if (seq !== preflightSeq) return;
-  const clashes = clashResults.flatMap(r => (r.status === "fulfilled" ? r.value : []));
+  const clashes = clashResults.flatMap(r => (r.status === "fulfilled" ? r.value.clashes : []));
+  const target = mode === "update" && clashResults[0]?.status === "fulfilled" ? clashResults[0].value : null;
   const failed = [...results, ...clashResults].find((r): r is PromiseRejectedResult => r.status === "rejected");
   if (failed && (failed.reason as GhError).status === 401) { logout("Le jeton GitHub est refusé (expiré ou révoqué). Colle un nouveau jeton."); return; }
   const checkError = failed ? "Impossible de relire la branche principale : " + explain(failed.reason) : "";
   const dropped = results.flatMap(r => (r.status === "fulfilled" && r.value ? [r.value] : [])).join(" ");
   // Un choix ne survit que si son conflit est encore là, sur le même texte de main ; sinon Alex choisit à nouveau.
   const live = new Map(clashes.map(c => [clashKey(c), c]));
-  set(s => ({ pr: { ...s.pr, checking: false, checkError, clashes, dropped: [s.pr.dropped, dropped].filter(Boolean).join(" "),
+  set(s => ({ pr: { ...s.pr, checking: false, checkError, clashes, target, dropped: [s.pr.dropped, dropped].filter(Boolean).join(" "),
     choices: Object.fromEntries(Object.entries(s.pr.choices).filter(([k, ch]) => live.has(k) && live.get(k)!.main === ch.main)) } }));
 }
 
@@ -290,6 +297,8 @@ export async function submitPr(title: string, note: string) {
   try {
     if (pr.mode === "init") {
       results.push(await client.createPr(knownSet(pr.setId).repo, title, note, who, { initSet: pr.setId }));
+    } else if (pr.mode === "update") {
+      results.push(await client.createPr(knownSet(pr.setId).repo, title, note, who, { drafts: [], choices: pr.choices, updateOnly: true }));
     } else {
       const repos = [...new Set(Object.values(get().drafts).map(d => knownSet(d.set).repo))];
       for (const repo of repos) {
@@ -315,7 +324,9 @@ export async function submitPr(title: string, note: string) {
     }
     set(s => ({ pr: { ...s.pr, open: false, submitting: false } }));
     done();
-    notify("error", "La pull request n'a pas pu être créée. " + explain(e) + " Tes modifications sont conservées.");
+    notify("error", pr.mode === "update"
+      ? "La pull request n'a pas pu être mise à jour. " + explain(e)
+      : "La pull request n'a pas pu être créée. " + explain(e) + " Tes modifications sont conservées.");
   }
 }
 

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { GitPullRequestArrow, Trash2 } from "lucide-react";
+import { GitPullRequestArrow, RefreshCcw, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { setById } from "@/lib/config";
 import { needsChoice } from "@/lib/core";
@@ -14,6 +14,9 @@ export function SendBar() {
   const repos = new Set(list.map(d => setById(d.set).repo));
   const data = useApp(s => s.data);
   const conflicts = driftedDrafts(drafts, data).filter(x => needsChoice(x.drift)).length;
+  // Une PR de relecture est ouverte pour le jeu affiché (des clés y sont en attente) : sans nouvelle modification,
+  // Alex peut la rejouer sur main, pour la débloquer quand un développeur a changé un texte qu'elle avait écrit.
+  const pendingPr = useApp(s => Object.values(s.data[s.setId]?.pending ?? {}).some(m => m.size > 0));
 
   // « Tout annuler » demande une confirmation pendant 4 secondes.
   const [confirm, setConfirm] = useState(false);
@@ -45,7 +48,9 @@ export function SendBar() {
           <Button variant={confirm ? "destructive" : "ghost"} size="sm" disabled={!list.length} onClick={onDiscard}>
             <Trash2 />{confirm ? "Confirmer l'annulation" : "Tout annuler"}
           </Button>
-          <Button size="sm" disabled={!list.length} onClick={() => openPr("drafts")}><GitPullRequestArrow />Préparer la pull request</Button>
+          {!list.length && pendingPr
+            ? <Button size="sm" variant="outline" onClick={() => openPr("update")}><RefreshCcw />Mettre à jour ma PR</Button>
+            : <Button size="sm" disabled={!list.length} onClick={() => openPr("drafts")}><GitPullRequestArrow />Préparer la pull request</Button>}
         </div>
       </div>
     </div>

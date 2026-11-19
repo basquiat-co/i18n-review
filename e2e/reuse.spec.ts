@@ -255,3 +255,54 @@ test("une nouvelle PR ne demande aucune fusion automatique", async ({ page, gh }
   await expect(notice).not.toContainText("automatique");
   expect(gh.calls.filter(c => c.includes("/graphql"))).toHaveLength(0);
 });
+
+const updateButton = (page: Page) => page.getByRole("button", { name: "Mettre à jour ma PR" });
+
+test("sans modification en cours, « Mettre à jour ma PR » rejoue la PR ouverte sur main", async ({ page, gh }) => {
+  openPr(gh);
+  await login(page);
+  await expect(page.getByRole("button", { name: "Préparer la pull request" })).toBeHidden();
+  await updateButton(page).click();
+  const dialog = page.getByRole("dialog");
+  await expect(dialog).toContainText("La PR #7 sera rejouée sur la dernière version de la branche principale");
+  await dialog.getByRole("button", { name: "Mettre à jour la PR" }).click();
+
+  await expect(page.getByText(/Pull request #7 mise à jour dans basquiat-co\/basquiat-app\./)).toBeVisible();
+  expect(gh.posts.pulls).toHaveLength(0);
+  expect(gh.posts.commits[0].body.parents).toEqual(["pr7", "base"]);
+  expect(gh.written(DE_PATH)).toBe(json({ ...DE, hello: "Hallo, {name}", members: PR_MEMBERS }));
+  expect(gh.posts.pullUpdates[0].body.body).toContain("Rejouée sur la dernière version de main, sans nouvelle relecture.");
+});
+
+test("« Mettre à jour ma PR » : un texte changé des deux côtés est tranché par Alex avant d'écrire", async ({ page, gh }) => {
+  openPr(gh, { clash: true });
+  await login(page);
+  await updateButton(page).click();
+  const dialog = page.getByRole("dialog");
+  const submit = dialog.getByRole("button", { name: "Mettre à jour la PR" });
+  await expect(clashNote(page)).toContainText(MAIN_MEMBERS);
+  await expect(submit).toBeDisabled();
+  await clashNote(page).getByRole("button", { name: "Prendre celle de la branche principale" }).click();
+  await submit.click();
+
+  await expect(page.getByText(/Pull request #7 mise à jour/)).toBeVisible();
+  expect(gh.written(DE_PATH)).toBe(json({ ...DE, hello: "Hallo, {name}", members: MAIN_MEMBERS }));
+  expect(JSON.parse(gh.written(REVIEW)!).sets.app.de.members).toBe(hash(FR.members) + " " + hash(MAIN_MEMBERS));
+});
+
+test("« Mettre à jour ma PR » sur une PR déjà à jour : rien à faire, rien n'est écrit", async ({ page, gh }) => {
+  openPr(gh);
+  gh.compares.pr7.mergeBase = "base";
+  await login(page);
+  await updateButton(page).click();
+  const dialog = page.getByRole("dialog");
+  await expect(dialog).toContainText("La PR #7 est déjà à jour avec la branche principale.");
+  await expect(dialog.getByRole("button", { name: "Mettre à jour la PR" })).toBeDisabled();
+  expect(gh.writes()).toBe(0);
+});
+
+test("sans PR de relecture ouverte, pas de bouton « Mettre à jour ma PR »", async ({ page }) => {
+  await login(page);
+  await expect(page.getByRole("button", { name: "Préparer la pull request" })).toBeDisabled();
+  await expect(updateButton(page)).toBeHidden();
+});
