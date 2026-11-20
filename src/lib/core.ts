@@ -417,6 +417,51 @@ export function initReview(review: Review, setId: string, sourceLang: string, la
   return next;
 }
 
+// ---------- Reprise d'une pull request ouverte ----------
+// Une PR de l'outil encore ouverte est reconstruite sur la dernière version de la branche principale
+// avant d'y ajouter la nouvelle relecture : elle reste à jour et ne peut pas entrer en conflit.
+
+/**
+ * Valeurs qu'une PR a écrites dans une langue (base : son point de départ, head : sa dernière version),
+ * à rejouer sur main. Une clé absente de la source sur main (liveIds) a été supprimée : elle n'est pas recréée.
+ * Une valeur que main a aussi changée depuis la base n'est pas rejouée : elle part dans clashes (la valeur de la PR),
+ * et Alex choisit à l'envoi.
+ */
+export function replayValues(base: JsonObject, head: JsonObject, main: JsonObject, liveIds: Set<string>): { edits: FlatEntry[]; clashes: FlatEntry[] } {
+  const b = toMap(flatten(base)), m = toMap(flatten(main));
+  const edits: FlatEntry[] = [], clashes: FlatEntry[] = [];
+  for (const e of flatten(head)) {
+    const bv = b.get(e.id)?.value, mv = m.get(e.id)?.value;
+    if (e.value === bv || e.value === mv || !liveIds.has(e.id)) continue;
+    if (mv !== bv) clashes.push(e); else edits.push(e);
+  }
+  return { edits, clashes };
+}
+
+/**
+ * Rejoue sur l'état de relecture de main les entrées qu'une PR a changées, sauf celles que main a changées depuis.
+ * live(jeu) : clés encore présentes dans la source sur main (null : jeu inconnu, rien n'est repris) ;
+ * skip : « jeu|langue|clé » à ne pas reprendre (valeurs en conflit, qui doivent repasser à relire).
+ */
+export function replayReview(main: Review, base: Review, head: Review, live: (setId: string) => Set<string> | null, skip: Set<string>): Review {
+  const next: Review = JSON.parse(JSON.stringify(main));
+  for (const [setId, langs] of Object.entries(head.sets)) {
+    const ids = live(setId);
+    if (!ids) continue;
+    for (const [lang, entries] of Object.entries(langs)) {
+      const before = reviewEntries(base, setId, lang), now = reviewEntries(main, setId, lang);
+      for (const [k, v] of Object.entries(entries)) {
+        // main a relu la clé depuis la base de la PR (une autre PR fusionnée) : son entrée est la plus récente.
+        if (v === before[k] || now[k] !== before[k] || !ids.has(k) || skip.has(`${setId}|${lang}|${k}`)) continue;
+        next.sets[setId] = next.sets[setId] || {};
+        next.sets[setId][lang] = next.sets[setId][lang] || {};
+        next.sets[setId][lang][k] = v;
+      }
+    }
+  }
+  return next;
+}
+
 // ---------- Modifications en attente ----------
 
 export interface Draft {
@@ -442,4 +487,57 @@ export function splitDrafts(drafts: unknown, sets: { id: string; langs: string[]
     if (set && set.langs.includes(d.lang as string)) kept[k] = d as unknown as Draft; else orphans[k] = d as unknown as Draft;
   }
   return { kept, orphans };
+}
+
+// ---------- Modifications face à main ----------
+// Alex travaille une fois par semaine ; entre-temps, les développeurs changent des textes sur main. Une
+// modification garde le texte source et le texte cible qu'elle a vus (source, original) : comparés à main,
+// ils disent si elle porte encore sur le même texte.
+
+/**
+ * Ce que main contient aujourd'hui pour la clé d'une modification ; undefined : la clé n'y est pas.
+ * isSource : la modification porte sur la langue source, dont le texte EST la source.
+ */
+export interface MainNow { source: string | undefined; value: string | undefined; isSource?: boolean }
+
+/**
+ * same : main n'a pas touché à ce texte.
+ * absorbed : main contient déjà exactement la correction (une autre relecture fusionnée) : elle devient une validation.
+ * dropped : une simple validation (rien de tapé) dont la clé a disparu de la source (gone) ou dont le texte a
+ *   changé depuis (validation) : il n'y a plus rien à envoyer, garder « ma version » écrirait un texte que
+ *   personne n'a tapé. C'est la seule modification retirée sans qu'Alex le demande.
+ * gone : une correction tapée par Alex sur une clé que main a supprimée : gardée, montrée, Alex la retire.
+ * conflict : une correction dont la source ou le texte cible a changé sur main : Alex choisit.
+ */
+export type Drift = "same" | "absorbed" | "dropped-gone" | "dropped-validation" | "gone" | "conflict";
+
+/** Ce qui bloque l'envoi jusqu'à ce qu'Alex tranche. */
+export const needsChoice = (drift: Drift) => drift === "conflict" || drift === "gone";
+
+export function draftDrift(d: Draft, now: MainNow): Drift {
+  if (now.source === undefined) return d.edited ? "gone" : "dropped-gone";
+  // Dans la langue source, source et texte sont un seul texte : seul le texte compte (sinon une correction que
+  // main contient déjà passerait pour un conflit, la source ayant « changé » de la même façon).
+  const sourceSame = now.isSource || now.source === d.source;
+  const valueSame = d.exists ? now.value === d.original : now.value === undefined;
+  if (sourceSame && valueSame) return "same";
+  if (!d.edited) return "dropped-validation";
+  if (sourceSame && now.value === d.value) return "absorbed";
+  return "conflict";
+}
+
+/** La modification reposée sur main tel qu'il est : même texte final, comparé au texte actuel de main. */
+export function rebaseDraft(d: Draft, now: MainNow): Draft {
+  const exists = now.value !== undefined;
+  return { ...d, source: now.source ?? d.source, original: now.value ?? "", exists, edited: !exists || d.value !== now.value };
+}
+
+/** Recherche dans les fichiers de main : texte source et texte de chaque langue, par clé. */
+export function mainLookup(sourceLang: string, flat: Record<string, FlatEntry[]>): (lang: string, id: string) => MainNow {
+  const maps = new Map<string, Map<string, FlatEntry>>();
+  const map = (l: string) => {
+    if (!maps.has(l)) maps.set(l, toMap(flat[l] || []));
+    return maps.get(l)!;
+  };
+  return (lang, id) => ({ source: map(sourceLang).get(id)?.value, value: map(lang).get(id)?.value, isSource: lang === sourceLang });
 }

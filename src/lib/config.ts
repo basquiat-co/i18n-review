@@ -31,6 +31,12 @@ export const langName = (l: string) => LANG_NAMES[l] || l;
 
 export const filePath = (set: FileSet, lang: string) => set.path.replace("{lang}", lang);
 
+// Fichiers que l'outil écrit dans un dépôt : les traductions de ses jeux et le fichier d'état.
+export function reviewedPaths(repo: string): Set<string> {
+  const paths = SETS.filter(s => s.repo === repo).flatMap(s => s.langs.map(l => filePath(s, l)));
+  return new Set([...paths, REVIEW_FILE]);
+}
+
 // findSet est strict (undefined si le jeu n'existe plus) ; setById retombe sur le premier jeu, pour l'affichage seulement.
 export function findSet(id: string | null | undefined): FileSet | undefined { return SETS.find(s => s.id === id); }
 export const setById = (id: string | null | undefined): FileSet => findSet(id) || SETS[0];

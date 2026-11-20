@@ -1,12 +1,14 @@
 import { create } from "zustand";
-import type { Drafts } from "@/lib/core";
+import { rebaseDraft, type Drafts } from "@/lib/core";
 import { PAGE, SETS, knownSet, setById, type FilterKey } from "@/lib/config";
-import { GhError, GitHub, explain, type CreatedPr, type GhUser, type SetData } from "@/lib/github";
-import { activeLangs, applyEdit, draftKey, removeDrafts, validateCells, type Cell } from "@/lib/rows";
+import { GhError, GitHub, StaleDraftsError, clashKey, explain, type ClashChoice, type CreatedPr, type GhUser, type PrClash, type ReviewPrState, type SetData } from "@/lib/github";
+import { activeLangs, applyEdit, draftKey, driftedDrafts, removeDrafts, validateCells, type Cell } from "@/lib/rows";
 import * as storage from "@/lib/storage";
 
-export interface Notice { id: number; kind: "ok" | "error"; text: string; link?: { href: string; text: string } }
-export type PrMode = "drafts" | "init";
+export interface Notice { id: number; kind: "ok" | "warn" | "error"; text: string; link?: { href: string; text: string } }
+// drafts : envoyer la relecture ; init : marquer l'existant comme relu ; update : rejouer la PR ouverte sur main, sans
+// nouvelle relecture (« Mettre à jour ma PR »).
+export type PrMode = "drafts" | "init" | "update";
 
 interface AppState {
   booting: boolean;          // connexion automatique avec un jeton enregistré
@@ -23,7 +25,11 @@ interface AppState {
   orphans: Drafts;
   rawRows: Record<string, true>; // cellules affichées en texte brut plutôt que forme par forme
   notices: Notice[];
-  pr: { open: boolean; mode: PrMode; setId: string; submitting: boolean };
+  // checkError : la relecture de main avant l'envoi a échoué ; dropped : les validations qu'elle a retirées. Tous deux
+  // affichés dans la fenêtre, qui cache les messages. clashes : textes de la PR ouverte que main a changés depuis ;
+  // choices : ce qu'Alex a choisi pour chacun (gardé pendant l'envoi seulement).
+  pr: { open: boolean; mode: PrMode; setId: string; submitting: boolean; checking: boolean; refused: boolean; checkError: string; dropped: string;
+    clashes: PrClash[]; choices: Record<string, ClashChoice>; target: ReviewPrState | null /* update : la PR du dépôt */ };
   theme: storage.Theme;
 }
 
@@ -44,7 +50,7 @@ export const useApp = create<AppState>(() => ({
   orphans: storage.loadOrphans(),
   rawRows: {},
   notices: [],
-  pr: { open: false, mode: "drafts", setId: SETS[0].id, submitting: false },
+  pr: { open: false, mode: "drafts", setId: SETS[0].id, submitting: false, checking: false, refused: false, checkError: "", dropped: "", clashes: [], choices: {}, target: null },
   theme: storage.loadTheme(),
 }));
 
@@ -77,8 +83,9 @@ export async function login(token: string, remember: boolean) {
 
 export function logout(message?: string) {
   client = null;
+  generation++;
   storage.clearToken();
-  set({ user: null, data: {}, loginError: message || "", notices: [], pr: { ...get().pr, open: false, submitting: false } });
+  set({ user: null, data: {}, loginError: message || "", notices: [], pr: { ...get().pr, open: false, submitting: false, checking: false } });
 }
 
 let autoLoginDone = false;
@@ -96,10 +103,14 @@ export async function refresh(force = false) {
   if (!client) return;
   if (data[setId] && !force) return;
   const seq = ++loadSeq;
+  const gen = ++generation; // un rechargement demandé passe devant une vérification en fond en cours
   set({ loading: true });
   try {
     const loaded = await client.loadSet(setById(setId));
+    if (gen !== generation) return;
     set(s => ({ data: { ...s.data, [setId]: loaded } }));
+    const dropped = reconcile(setId);
+    if (dropped) notify("warn", dropped);
   } catch (e) {
     if ((e as GhError).status === 401) { logout("Le jeton GitHub est refusé (expiré ou révoqué). Colle un nouveau jeton."); return; }
     notify("error", "Impossible de charger les fichiers. " + explain(e, setById(setId).repo));
@@ -107,6 +118,69 @@ export async function refresh(force = false) {
     if (seq === loadSeq) set({ loading: false }); // un chargement plus récent garde la main
   }
 }
+
+/* ================= Comparaison avec main, à l'envoi ================= */
+// Main n'est relue qu'à l'ouverture de la fenêtre d'envoi et pendant l'envoi, jamais en fond : 1 requête pour son
+// sha ; s'il a bougé, la comparaison dit si un fichier relu a changé (1 requête) ; seulement alors les fichiers sont
+// relus. « Recharger depuis GitHub » relit tout à la demande.
+let generation = 0; // change à chaque envoi, rechargement demandé ou déconnexion : un résultat plus ancien est jeté
+
+/** Remet un jeu à jour avec main s'il a bougé et rend le message des validations retirées ; lève l'erreur de
+ *  GitHub, à l'appelant de dire s'il l'affiche. */
+async function freshen(setId: string): Promise<string> {
+  const c = client;
+  if (!c) return "";
+  const gen = generation;
+  const fileSet = setById(setId);
+  const old = get().data[setId];
+  let next: SetData | null = null;
+  if (!old) next = await c.loadSet(fileSet);
+  else {
+    const head = await c.repoHead(fileSet.repo);
+    if (head.sha !== old.sha) next = await c.touchesReviewed(fileSet.repo, old.sha, head.sha) ? await c.loadSet(fileSet) : { ...old, sha: head.sha };
+  }
+  if (gen !== generation || c !== client) return "";
+  if (next) set(s => ({ data: { ...s.data, [setId]: next } }));
+  return reconcile(setId);
+}
+
+// Modifications d'un jeu face à main : celle que main contient déjà devient une validation ; celle qui n'a plus
+// d'objet (clé supprimée, validation d'un texte qui a changé) est retirée, et le message qui le dit est rendu ; un
+// conflit reste, signalé sur la ligne et dans la fenêtre d'envoi.
+function reconcile(setId: string): string {
+  const loaded = get().data[setId];
+  // Source absente ou vide sur main (fichier déplacé, en cours de réécriture) : toutes les clés sembleraient
+  // supprimées. On ne touche à rien ; l'envoi le refusera en nommant le fichier.
+  if (!loaded || !loaded.flat[setById(setId).source]?.length) return "";
+  // Relu sur l'ordinateur plutôt qu'en mémoire : un autre onglet a pu enregistrer des modifications depuis, et
+  // cette mise à jour ne doit pas les écraser.
+  const drafts = { ...storage.loadDrafts() };
+  const drifted = driftedDrafts(drafts, get().data, setId);
+  if (!drifted.some(x => x.drift === "absorbed" || x.drift.startsWith("dropped"))) return "";
+  const next = { ...drafts };
+  const dropped: string[] = [];
+  for (const x of drifted) {
+    if (x.drift === "absorbed") next[x.key] = rebaseDraft(x.draft, x.now);
+    else if (x.drift.startsWith("dropped")) { delete next[x.key]; dropped.push(`${x.draft.id} (${x.draft.lang})`); }
+  }
+  saveDrafts(next);
+  if (!dropped.length) return "";
+  const n = dropped.length, list = dropped.slice(0, 5).join(", ") + (n > 5 ? `, et ${n - 5} autre${n > 6 ? "s" : ""}` : "");
+  return `${n} validation${n > 1 ? "s retirées" : " retirée"} : la branche principale a supprimé la clé, ou changé le texte que tu avais validé tel quel (${list}). Relis ${n > 1 ? "ces lignes" : "cette ligne"} si besoin.`;
+}
+
+/** Conflit : garder ma correction, désormais comparée au texte actuel de main. */
+export function keepMine(key: string) {
+  const { drafts, data } = get();
+  const x = driftedDrafts({ [key]: drafts[key] }, data)[0];
+  if (x) saveDrafts({ ...drafts, [key]: rebaseDraft(x.draft, x.now) });
+}
+/** Conflit : abandonner ma correction et prendre le texte de main. */
+export const takeMain = (key: string) => {
+  const next = { ...get().drafts };
+  delete next[key];
+  saveDrafts(next);
+};
 
 /* ================= Navigation ================= */
 export function selectSet(id: string) {
@@ -162,7 +236,44 @@ export function deleteOrphans() {
 // Pendant la création, le panneau ne peut être ni fermé ni rouvert : un second envoi créerait une PR en double.
 export function openPr(mode: PrMode, setId = get().setId) {
   if (get().pr.submitting) return;
-  set({ pr: { open: true, mode, setId, submitting: false } });
+  const checking = mode !== "init";
+  set({ pr: { open: true, mode, setId, submitting: false, checking, refused: false, checkError: "", dropped: "", clashes: [], choices: {}, target: null } });
+  if (checking) void preflight();
+}
+
+// À l'ouverture de la fenêtre d'envoi : chaque jeu qui a des modifications est remis à jour avec main, et la PR de
+// relecture ouverte de chaque dépôt comparée à main, pour que les conflits s'y affichent avant l'envoi (y compris
+// pour une langue masquée ou un autre jeu).
+// Chaque jeu est attendu, même si un autre échoue ; seule la dernière vérification lancée rend la main.
+let preflightSeq = 0;
+async function preflight() {
+  const seq = ++preflightSeq;
+  const { mode, setId } = get().pr;
+  // « Mettre à jour ma PR » ne concerne que le dépôt affiché, sans modification à comparer.
+  const sets = mode === "update" ? [] : [...new Set(Object.values(get().drafts).map(d => d.set))];
+  const repos = mode === "update" ? [knownSet(setId).repo] : [...new Set(sets.map(id => knownSet(id).repo))];
+  const c = client;
+  const none: ReviewPrState = { pr: null, upToDate: false, clashes: [] };
+  const [results, clashResults] = await Promise.all([
+    Promise.allSettled(sets.map(freshen)),
+    Promise.allSettled(repos.map(r => c ? c.reviewPr(r) : Promise.resolve(none))),
+  ]);
+  if (seq !== preflightSeq) return;
+  const clashes = clashResults.flatMap(r => (r.status === "fulfilled" ? r.value.clashes : []));
+  const target = mode === "update" && clashResults[0]?.status === "fulfilled" ? clashResults[0].value : null;
+  const failed = [...results, ...clashResults].find((r): r is PromiseRejectedResult => r.status === "rejected");
+  if (failed && (failed.reason as GhError).status === 401) { logout("Le jeton GitHub est refusé (expiré ou révoqué). Colle un nouveau jeton."); return; }
+  const checkError = failed ? "Impossible de relire la branche principale : " + explain(failed.reason) : "";
+  const dropped = results.flatMap(r => (r.status === "fulfilled" && r.value ? [r.value] : [])).join(" ");
+  // Un choix ne survit que si son conflit est encore là, sur le même texte de main ; sinon Alex choisit à nouveau.
+  const live = new Map(clashes.map(c => [clashKey(c), c]));
+  set(s => ({ pr: { ...s.pr, checking: false, checkError, clashes, target, dropped: [s.pr.dropped, dropped].filter(Boolean).join(" "),
+    choices: Object.fromEntries(Object.entries(s.pr.choices).filter(([k, ch]) => live.has(k) && live.get(k)!.main === ch.main)) } }));
+}
+
+/** Conflit avec la PR ouverte : Alex garde son texte ou prend celui de main (lié au texte de main qu'il a vu). */
+export function chooseClash(c: PrClash, keep: ClashChoice["keep"]) {
+  set(s => ({ pr: { ...s.pr, choices: { ...s.pr.choices, [clashKey(c)]: { keep, main: c.main } } } }));
 }
 export function closePr() {
   if (get().pr.submitting) return;
@@ -171,19 +282,28 @@ export function closePr() {
 
 export async function submitPr(title: string, note: string) {
   const { pr, user } = get();
-  if (pr.submitting || !client) return;
+  if (pr.submitting || pr.checking || !client) return;
+  generation++; // une relecture de main encore en cours ne doit pas remplacer les données pendant l'envoi
   set({ pr: { ...pr, submitting: true } });
   const who = user ? (user.name || user.login) : "relecture";
   const results: CreatedPr[] = [];
-  const done = () => { for (const r of results) notify("ok", `Pull request créée dans ${r.repo}.`, { href: r.url, text: "Ouvrir la PR #" + r.number }); };
+  const done = () => {
+    for (const r of results) {
+      const text = (r.updated ? `Pull request #${r.number} mise à jour dans ${r.repo}.` : `Pull request créée dans ${r.repo}.`) +
+        r.notes.map(n => " " + n).join("");
+      notify("ok", text, { href: r.url, text: "Ouvrir la PR #" + r.number });
+    }
+  };
   try {
     if (pr.mode === "init") {
       results.push(await client.createPr(knownSet(pr.setId).repo, title, note, who, { initSet: pr.setId }));
+    } else if (pr.mode === "update") {
+      results.push(await client.createPr(knownSet(pr.setId).repo, title, note, who, { drafts: [], choices: pr.choices, updateOnly: true }));
     } else {
       const repos = [...new Set(Object.values(get().drafts).map(d => knownSet(d.set).repo))];
       for (const repo of repos) {
         const drafts = Object.values(get().drafts).filter(d => knownSet(d.set).repo === repo);
-        results.push(await client.createPr(repo, title, note, who, { drafts }));
+        results.push(await client.createPr(repo, title, note, who, { drafts, choices: get().pr.choices }));
         const left = { ...get().drafts };
         for (const d of drafts) delete left[draftKey(d.set, d.lang, d.id)];
         saveDrafts(left);
@@ -193,9 +313,20 @@ export async function submitPr(title: string, note: string) {
     done();
     await refresh();
   } catch (e) {
+    if (e instanceof StaleDraftsError) {
+      // Rien n'a été écrit pour ce dépôt : la fenêtre reste ouverte et montre les conflits une fois main relu
+      // (un message hors de la fenêtre serait caché par elle).
+      set(s => ({ pr: { ...s.pr, submitting: false, checking: true, refused: true } }));
+      done();
+      await preflight();
+      if (results.length) void refresh(true); // un autre dépôt a bien reçu sa PR : ses lignes passent « en attente »
+      return;
+    }
     set(s => ({ pr: { ...s.pr, open: false, submitting: false } }));
     done();
-    notify("error", "La pull request n'a pas pu être créée. " + explain(e) + " Tes modifications sont conservées.");
+    notify("error", pr.mode === "update"
+      ? "La pull request n'a pas pu être mise à jour. " + explain(e)
+      : "La pull request n'a pas pu être créée. " + explain(e) + " Tes modifications sont conservées.");
   }
 }
 

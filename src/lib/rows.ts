@@ -1,5 +1,5 @@
 import * as C from "./core";
-import { MAX_LANGS, STATUS_ORDER, TODO, type FileSet, type FilterKey } from "./config";
+import { MAX_LANGS, STATUS_ORDER, TODO, knownSet, type FileSet, type FilterKey } from "./config";
 import type { SetData } from "./github";
 
 /* Modèle d'affichage : une clé = la source + une cellule par langue éditée. Fonctions pures. */
@@ -123,4 +123,34 @@ export function removeDrafts(drafts: C.Drafts, setId: string, cells: { lang: str
   const next = { ...drafts };
   for (const r of cells) delete next[draftKey(setId, r.lang, r.id)];
   return next;
+}
+
+/* ---------- Modifications face à main ---------- */
+
+// Ce que main contient aujourd'hui pour la clé d'une cellule (la ligne affichée est lue sur main).
+export const cellNow = (c: Cell, sourceLang: string): C.MainNow =>
+  ({ source: c.source, value: c.exists ? c.value : undefined, isSource: c.lang === sourceLang });
+export const isConflict = (c: Cell, sourceLang: string) => !!c.draft && C.draftDrift(c.draft, cellNow(c, sourceLang)) === "conflict";
+
+export interface DriftedDraft { key: string; draft: C.Draft; now: C.MainNow; drift: C.Drift }
+
+/**
+ * Modifications qui ne portent plus sur le texte de main, pour chaque jeu chargé (un jeu pas encore chargé
+ * n'apparaît pas : l'envoi le vérifie de toute façon). Toutes les langues, même celles qui ne sont pas affichées.
+ */
+export function driftedDrafts(drafts: C.Drafts, data: Record<string, SetData | undefined>, setId?: string): DriftedDraft[] {
+  const lookups = new Map<string, (lang: string, id: string) => C.MainNow>();
+  const out: DriftedDraft[] = [];
+  for (const [key, d] of Object.entries(drafts)) {
+    if (setId && d.set !== setId) continue;
+    const loaded = data[d.set];
+    // Fichier source ou de la langue absent ou vide sur main (déplacé, en cours de réécriture) : comparer dirait
+    // que tout a été supprimé. Rien n'est conclu ; l'envoi le refuse en nommant le fichier.
+    if (!loaded || !loaded.flat[knownSet(d.set).source]?.length || (d.exists && !loaded.flat[d.lang]?.length)) continue;
+    if (!lookups.has(d.set)) lookups.set(d.set, C.mainLookup(knownSet(d.set).source, loaded.flat));
+    const now = lookups.get(d.set)!(d.lang, d.id);
+    const drift = C.draftDrift(d, now);
+    if (drift !== "same") out.push({ key, draft: d, now, drift });
+  }
+  return out;
 }

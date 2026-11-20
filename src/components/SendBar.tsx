@@ -1,7 +1,9 @@
 import { useEffect, useRef, useState } from "react";
-import { GitPullRequestArrow, Trash2 } from "lucide-react";
+import { GitPullRequestArrow, RefreshCcw, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { setById } from "@/lib/config";
+import { needsChoice } from "@/lib/core";
+import { driftedDrafts } from "@/lib/rows";
 import { discardAll, openPr, useApp } from "@/store";
 
 // Barre d'envoi, collée en bas : ce qui partira dans la pull request.
@@ -10,6 +12,11 @@ export function SendBar() {
   const list = Object.values(drafts);
   const edited = list.filter(d => d.edited).length, validated = list.length - edited;
   const repos = new Set(list.map(d => setById(d.set).repo));
+  const data = useApp(s => s.data);
+  const conflicts = driftedDrafts(drafts, data).filter(x => needsChoice(x.drift)).length;
+  // Une PR de relecture est ouverte pour le jeu affiché (des clés y sont en attente) : sans nouvelle modification,
+  // Alex peut la rejouer sur main, pour la débloquer quand un développeur a changé un texte qu'elle avait écrit.
+  const pendingPr = useApp(s => Object.values(s.data[s.setId]?.pending ?? {}).some(m => m.size > 0));
 
   // « Tout annuler » demande une confirmation pendant 4 secondes.
   const [confirm, setConfirm] = useState(false);
@@ -28,7 +35,8 @@ export function SendBar() {
           <div className="flex min-w-0 flex-col">
             <span id="send-summary" className="text-sm" aria-live="polite">
               {list.length
-                ? <><strong className="font-semibold tabular-nums">{edited}</strong>{` correction${edited > 1 ? "s" : ""} · `}<strong className="font-semibold tabular-nums">{validated}</strong>{` validation${validated > 1 ? "s" : ""} sans changement` + (repos.size > 1 ? ` · ${repos.size} dépôts` : "")}</>
+                ? <><strong className="font-semibold tabular-nums">{edited}</strong>{` correction${edited > 1 ? "s" : ""} · `}<strong className="font-semibold tabular-nums">{validated}</strong>{` validation${validated > 1 ? "s" : ""} sans changement` + (repos.size > 1 ? ` · ${repos.size} dépôts` : "")}
+                  {conflicts ? <> · <strong className="font-semibold text-[color:var(--st-modified)] tabular-nums">{conflicts} à revoir</strong></> : null}</>
                 : <span className="text-muted-foreground">Aucune modification en attente.</span>}
             </span>
             <span className="hidden text-xs text-muted-foreground lg:block">
@@ -40,7 +48,9 @@ export function SendBar() {
           <Button variant={confirm ? "destructive" : "ghost"} size="sm" disabled={!list.length} onClick={onDiscard}>
             <Trash2 />{confirm ? "Confirmer l'annulation" : "Tout annuler"}
           </Button>
-          <Button size="sm" disabled={!list.length} onClick={() => openPr("drafts")}><GitPullRequestArrow />Préparer la pull request</Button>
+          {!list.length && pendingPr
+            ? <Button size="sm" variant="outline" onClick={() => openPr("update")}><RefreshCcw />Mettre à jour ma PR</Button>
+            : <Button size="sm" disabled={!list.length} onClick={() => openPr("drafts")}><GitPullRequestArrow />Préparer la pull request</Button>}
         </div>
       </div>
     </div>

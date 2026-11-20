@@ -2,7 +2,7 @@ import { test } from "vitest";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
-import { LANG_NAMES, SETS } from "../src/lib/config";
+import { LANG_NAMES, REVIEW_FILE, SETS, reviewedPaths } from "../src/lib/config";
 
 test("SETS : configuration cohérente", () => {
   assert.ok(SETS.length > 0);
@@ -32,4 +32,12 @@ test("composants : cn() vient de @/lib/utils, jamais du paquet npm « cn »", ()
   for (const f of files) {
     assert.doesNotMatch(fs.readFileSync(path.join(root, "src", f), "utf8"), /from ["']cn["']/, `src/${f} : importer cn depuis "@/lib/utils"`);
   }
+});
+
+test("reviewedPaths : les traductions de tous les jeux du dépôt et le fichier d'état", () => {
+  const paths = reviewedPaths("basquiat-co/basquiat-app");
+  assert.ok(paths.has(REVIEW_FILE));
+  assert.ok(paths.has("app/i18n/fr/app.json") && paths.has("app/i18n/de/expo.json"));
+  assert.ok(!paths.has("service_bff/src/locales/fr.json"), "un autre dépôt");
+  assert.ok(!paths.has("app/i18n/en/app.json"), "une langue non configurée");
 });
